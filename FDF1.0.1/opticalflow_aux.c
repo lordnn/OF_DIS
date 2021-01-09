@@ -26,35 +26,35 @@ void image_warp(color_image_t *dst, image_t *mask, const color_image_t *src, con
     {
         for(i=0 ; i<src->width ; i++,offset++)
         {
-	        xx = i+wx->c1[offset];
-	        yy = j+wy->c1[offset];
-	        x = floor(xx);
-	        y = floor(yy);
-	        dx = xx-x;
-	        dy = yy-y;
-	        mask->c1[offset] = (xx>=0 && xx<=src->width-1 && yy>=0 && yy<=src->height-1);
-	        x1 = MINMAX_TA(x,src->width);
-	        x2 = MINMAX_TA(x+1,src->width);
-	        y1 = MINMAX_TA(y,src->height);
-	        y2 = MINMAX_TA(y+1,src->height);
-	        dst->c1[offset] = 
-	            src->c1[y1*src->stride+x1]*(1.0f-dx)*(1.0f-dy) +
-	            src->c1[y1*src->stride+x2]*dx*(1.0f-dy) +
-	            src->c1[y2*src->stride+x1]*(1.0f-dx)*dy +
-	            src->c1[y2*src->stride+x2]*dx*dy;
+            xx = i+wx->c1[offset];
+            yy = j+wy->c1[offset];
+            x = floor(xx);
+            y = floor(yy);
+            dx = xx-x;
+            dy = yy-y;
+            mask->c1[offset] = (xx>=0 && xx<=src->width-1 && yy>=0 && yy<=src->height-1);
+            x1 = MINMAX_TA(x,src->width);
+            x2 = MINMAX_TA(x+1,src->width);
+            y1 = MINMAX_TA(y,src->height);
+            y2 = MINMAX_TA(y+1,src->height);
+            dst->c1[offset] = 
+                src->c1[y1*src->stride+x1]*(1.0f-dx)*(1.0f-dy) +
+                src->c1[y1*src->stride+x2]*dx*(1.0f-dy) +
+                src->c1[y2*src->stride+x1]*(1.0f-dx)*dy +
+                src->c1[y2*src->stride+x2]*dx*dy;
           #if (SELECTCHANNEL==3)
-	        dst->c2[offset] = 
-	            src->c2[y1*src->stride+x1]*(1.0f-dx)*(1.0f-dy) +
-	            src->c2[y1*src->stride+x2]*dx*(1.0f-dy) +
-	            src->c2[y2*src->stride+x1]*(1.0f-dx)*dy +
-	            src->c2[y2*src->stride+x2]*dx*dy;
-	        dst->c3[offset] = 
-	            src->c3[y1*src->stride+x1]*(1.0f-dx)*(1.0f-dy) +
-	            src->c3[y1*src->stride+x2]*dx*(1.0f-dy) +
-	            src->c3[y2*src->stride+x1]*(1.0f-dx)*dy +
-	            src->c3[y2*src->stride+x2]*dx*dy;
+            dst->c2[offset] = 
+                src->c2[y1*src->stride+x1]*(1.0f-dx)*(1.0f-dy) +
+                src->c2[y1*src->stride+x2]*dx*(1.0f-dy) +
+                src->c2[y2*src->stride+x1]*(1.0f-dx)*dy +
+                src->c2[y2*src->stride+x2]*dx*dy;
+            dst->c3[offset] = 
+                src->c3[y1*src->stride+x1]*(1.0f-dx)*(1.0f-dy) +
+                src->c3[y1*src->stride+x2]*dx*(1.0f-dy) +
+                src->c3[y2*src->stride+x1]*(1.0f-dx)*dy +
+                src->c3[y2*src->stride+x2]*dx*dy;
           #endif
-	    }
+        }
         offset += incr_line;
     }
 }
@@ -67,8 +67,8 @@ void get_derivatives(const image_t *im1, const image_t *im2, const convolution_t
          image_t *dxx, image_t *dxy, image_t *dyy, image_t *dxt, image_t *dyt)
 #else
 void get_derivatives(const color_image_t *im1, const color_image_t *im2, const convolution_t *deriv,
-		     color_image_t *dx, color_image_t *dy, color_image_t *dt, 
-		     color_image_t *dxx, color_image_t *dxy, color_image_t *dyy, color_image_t *dxt, color_image_t *dyt)
+             color_image_t *dx, color_image_t *dy, color_image_t *dt, 
+             color_image_t *dxx, color_image_t *dxy, color_image_t *dyy, color_image_t *dxt, color_image_t *dyt)
 #endif
 {
     // derivatives are computed on the mean of the first image and the warped second image
@@ -140,7 +140,7 @@ void compute_smoothness(image_t *dst_horiz, image_t *dst_vert, const image_t *uu
     image_delete(ux); image_delete(uy); image_delete(vx); image_delete(vy); 
     // compute dst_horiz
     v4sf *dsthp = (v4sf*) dst_horiz->c1; sp = (v4sf*) smoothness->c1;
-    float *sp_shift = (float*) memalign(16, stride*sizeof(float)); // aligned shifted copy of the current line
+    float *sp_shift = (float*) _aligned_malloc(stride*sizeof(float), 16); // aligned shifted copy of the current line
     for(j=0;j<height;j++){
         // create an aligned copy
         float *spf = (float*) sp;
@@ -153,7 +153,7 @@ void compute_smoothness(image_t *dst_horiz, image_t *dst_vert, const image_t *uu
         }
         memset( &dst_horiz->c1[j*stride+width-1], 0, sizeof(float)*(stride-width+1));
     }
-    free(sp_shift);
+    _aligned_free(sp_shift);
     // compute dst_vert
     v4sf *dstvp = (v4sf*) dst_vert->c1, *sp_bottom = (v4sf*) (smoothness->c1+stride); sp = (v4sf*) smoothness->c1;
     for(j=0 ; j<(height-1)*stride/4 ; j++){
@@ -177,13 +177,13 @@ void sub_laplacian(image_t *dst, const image_t *src, const image_t *weight_horiz
     for(j=src->height+1;--j;){ // faster than for(j=0;j<src->height;j++)
         int i;
         for(i=src->width;--i;){
-	        const float tmp = (*weight_horiz_ptr)*((*(src_ptr+1))-(*src_ptr));
-	        *dst_ptr += tmp;
-	        *(dst_ptr+1) -= tmp;
-	        dst_ptr++;
-	        src_ptr++;
-	        weight_horiz_ptr++;
-	    }
+            const float tmp = (*weight_horiz_ptr)*((*(src_ptr+1))-(*src_ptr));
+            *dst_ptr += tmp;
+            *(dst_ptr+1) -= tmp;
+            dst_ptr++;
+            src_ptr++;
+            weight_horiz_ptr++;
+        }
         dst_ptr += offsetline+1;
         src_ptr += offsetline+1;
         weight_horiz_ptr += offsetline+1;
@@ -341,9 +341,9 @@ void compute_data(image_t *a11, image_t *a12, image_t *a22, image_t *b1, image_t
     int i;
     for(i = 0 ; i<uu->height*uu->stride/4 ; i++){
         v4sf tmp, tmp2, n1, n2;
-	#if (SELECTCHANNEL==3)
-	v4sf tmp3, tmp4, tmp5, tmp6, n3, n4, n5, n6;
-	#endif
+    #if (SELECTCHANNEL==3)
+    v4sf tmp3, tmp4, tmp5, tmp6, n3, n4, n5, n6;
+    #endif
         // dpsi color
         if(half_delta_over3){
             tmp  = *iz1p + (*ix1p)*(*dup) + (*iy1p)*(*dvp);
@@ -474,9 +474,9 @@ void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, imag
     int i;
     for(i = 0 ; i<uu->height*uu->stride/4 ; i++){
         v4sf tmp, tmp2, n1, n2;
-	#if (SELECTCHANNEL==3)
-	v4sf tmp3, tmp4, tmp5, tmp6, n3, n4, n5, n6;
-	#endif
+    #if (SELECTCHANNEL==3)
+    v4sf tmp3, tmp4, tmp5, tmp6, n3, n4, n5, n6;
+    #endif
         // dpsi color
         if(half_delta_over3){
             tmp  = *iz1p + (*ix1p)*(*dup);
@@ -565,40 +565,40 @@ void descflow_resize(image_t *dst_flow_x, image_t *dst_flow_y, image_t *dst_weig
         int i;
         for( i=0 ; i<src_width ; i++ ){
             const float weight = src_weight->c1[j*src_stride+i];
-	        if( weight<0.0000000001f ) continue;
+            if( weight<0.0000000001f ) continue;
             const float xx = ((float)i)*scale_x;
-	        const float xxf = floor(xx);
-	        const float dx = xx-xxf;
-	        const int x1 = MINMAX_TA( (int) xxf   , dst_width);
-	        const int x2 = MINMAX_TA( (int) xxf+1 , dst_width);
-	        float weightxy, newweight;
-	        if( dx ){
-	            if( dy ){
-		            weightxy = weight*dx*dy;
-		            newweight = dst_weight->c1[y2*dst_stride+x2] + weightxy;
-		            dst_flow_x->c1[y2*dst_stride+x2] = (dst_flow_x->c1[y2*dst_stride+x2]*dst_weight->c1[y2*dst_stride+x2] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
-		            dst_flow_y->c1[y2*dst_stride+x2] = (dst_flow_y->c1[y2*dst_stride+x2]*dst_weight->c1[y2*dst_stride+x2] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
-		            dst_weight->c1[y2*dst_stride+x2] = newweight;
-		        }
-	            weightxy = weight*dx*(1.0f-dy);
-	            newweight = dst_weight->c1[y1*dst_stride+x2] + weightxy;
-	            dst_flow_x->c1[y1*dst_stride+x2] = (dst_flow_x->c1[y1*dst_stride+x2]*dst_weight->c1[y1*dst_stride+x2] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
-	            dst_flow_y->c1[y1*dst_stride+x2] = (dst_flow_y->c1[y1*dst_stride+x2]*dst_weight->c1[y1*dst_stride+x2] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
-	            dst_weight->c1[y1*dst_stride+x2] = newweight;
+            const float xxf = floor(xx);
+            const float dx = xx-xxf;
+            const int x1 = MINMAX_TA( (int) xxf   , dst_width);
+            const int x2 = MINMAX_TA( (int) xxf+1 , dst_width);
+            float weightxy, newweight;
+            if( dx ){
+                if( dy ){
+                    weightxy = weight*dx*dy;
+                    newweight = dst_weight->c1[y2*dst_stride+x2] + weightxy;
+                    dst_flow_x->c1[y2*dst_stride+x2] = (dst_flow_x->c1[y2*dst_stride+x2]*dst_weight->c1[y2*dst_stride+x2] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
+                    dst_flow_y->c1[y2*dst_stride+x2] = (dst_flow_y->c1[y2*dst_stride+x2]*dst_weight->c1[y2*dst_stride+x2] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
+                    dst_weight->c1[y2*dst_stride+x2] = newweight;
+                }
+                weightxy = weight*dx*(1.0f-dy);
+                newweight = dst_weight->c1[y1*dst_stride+x2] + weightxy;
+                dst_flow_x->c1[y1*dst_stride+x2] = (dst_flow_x->c1[y1*dst_stride+x2]*dst_weight->c1[y1*dst_stride+x2] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
+                dst_flow_y->c1[y1*dst_stride+x2] = (dst_flow_y->c1[y1*dst_stride+x2]*dst_weight->c1[y1*dst_stride+x2] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
+                dst_weight->c1[y1*dst_stride+x2] = newweight;
             }
-	        if( dy ) {
+            if( dy ) {
                 weightxy = weight*(1.0f-dx)*dy;
                 newweight = dst_weight->c1[y2*dst_stride+x1] + weightxy;
                 dst_flow_x->c1[y2*dst_stride+x1] = (dst_flow_x->c1[y2*dst_stride+x1]*dst_weight->c1[y2*dst_stride+x1] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
                 dst_flow_y->c1[y2*dst_stride+x1] = (dst_flow_y->c1[y2*dst_stride+x1]*dst_weight->c1[y2*dst_stride+x1] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
                 dst_weight->c1[y2*dst_stride+x1] = newweight;
-	        }
-	        weightxy = weight*(1.0f-dx)*(1.0f-dy);
-	        newweight = dst_weight->c1[y1*dst_stride+x1] + weightxy;
-	        dst_flow_x->c1[y1*dst_stride+x1] = (dst_flow_x->c1[y1*dst_stride+x1]*dst_weight->c1[y1*dst_stride+x1] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
-	        dst_flow_y->c1[y1*dst_stride+x1] = (dst_flow_y->c1[y1*dst_stride+x1]*dst_weight->c1[y1*dst_stride+x1] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
-	        dst_weight->c1[y1*dst_stride+x1] = newweight;
-	    }
+            }
+            weightxy = weight*(1.0f-dx)*(1.0f-dy);
+            newweight = dst_weight->c1[y1*dst_stride+x1] + weightxy;
+            dst_flow_x->c1[y1*dst_stride+x1] = (dst_flow_x->c1[y1*dst_stride+x1]*dst_weight->c1[y1*dst_stride+x1] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
+            dst_flow_y->c1[y1*dst_stride+x1] = (dst_flow_y->c1[y1*dst_stride+x1]*dst_weight->c1[y1*dst_stride+x1] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
+            dst_weight->c1[y1*dst_stride+x1] = newweight;
+        }
     }
 }
 
@@ -614,16 +614,16 @@ void descflow_resize_nn(image_t *dst_flow_x, image_t *dst_flow_y, image_t *dst_w
         const int y = (int) 0.5f+yy; // equivalent to round(yy)
         int i;
         for( i=0 ; i<src_width ; i++ ){
-	        const float weight = src_weight->c1[j*src_stride+i];
-	        if( !weight )
-	            continue;
-	        const float xx = ((float)i)*scale_x;
-	        const int x = (int) 0.5f+xx; // equivalent to round(xx)
-	        if( dst_weight->c1[y*dst_stride+x] < weight ){
-	            dst_weight->c1[y*dst_stride+x] = weight;
-	            dst_flow_x->c1[y*dst_stride+x] = src_flow_x->c1[j*src_stride+i]*scale_x;
-	            dst_flow_y->c1[y*dst_stride+x] = src_flow_y->c1[j*src_stride+i]*scale_y;
-	        }
-	    }
+            const float weight = src_weight->c1[j*src_stride+i];
+            if( !weight )
+                continue;
+            const float xx = ((float)i)*scale_x;
+            const int x = (int) 0.5f+xx; // equivalent to round(xx)
+            if( dst_weight->c1[y*dst_stride+x] < weight ){
+                dst_weight->c1[y*dst_stride+x] = weight;
+                dst_flow_x->c1[y*dst_stride+x] = src_flow_x->c1[j*src_stride+i]*scale_x;
+                dst_flow_y->c1[y*dst_stride+x] = src_flow_y->c1[j*src_stride+i]*scale_y;
+            }
+        }
     }
 }

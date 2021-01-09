@@ -21,7 +21,7 @@ image_t *image_new(const int width, const int height){
     image->width = width;
     image->height = height;  
     image->stride = ( (width+3) / 4 ) * 4;
-    image->c1 = (float*) memalign(16, image->stride*height*sizeof(float));
+    image->c1 = (float*) _aligned_malloc(image->stride*height*sizeof(float), 16);
     if(image->c1== NULL){
         fprintf(stderr, "Error: image_new() - not enough memory !\n");
         exit(1);
@@ -58,7 +58,7 @@ void image_delete(image_t *image){
     if(image == NULL){
         //fprintf(stderr, "Warning: Delete image --> Ignore action (image not allocated)\n");
     }else{
-    free(image->c1);
+    _aligned_free(image->c1);
     free(image);
     }
 }
@@ -74,7 +74,7 @@ color_image_t *color_image_new(const int width, const int height){
     image->width = width;
     image->height = height;  
     image->stride = ( (width+3) / 4 ) * 4;
-    image->c1 = (float*) memalign(16, 3*image->stride*height*sizeof(float));
+    image->c1 = (float*) _aligned_malloc(3*image->stride*height*sizeof(float), 16);
     if(image->c1 == NULL){
         fprintf(stderr, "Error: color_image_new() - not enough memory !\n");
         exit(1);
@@ -99,7 +99,7 @@ void color_image_erase(color_image_t *image){
 /* free memory of a color image */
 void color_image_delete(color_image_t *image){
     if(image){
-        free(image->c1); // c2 and c3 was allocated at the same moment
+        _aligned_free(image->c1); // c2 and c3 was allocated at the same moment
         free(image);
     }
 }
@@ -110,12 +110,12 @@ void resize_if_needed_newsize(image_t *im, const int w, const int h){
         im->width = w;
         im->height = h;
         im->stride = ((w+3)/4)*4;
-        float *data = (float *) memalign(16, im->stride*h*sizeof(float));
+        float *data = (float *) _aligned_malloc(im->stride*h*sizeof(float), 16);
         if(data == NULL){
             fprintf(stderr, "Error: resize_if_needed_newsize() - not enough memory !\n");
             exit(1);
-	    }
-        free(im->c1);
+        }
+        _aligned_free(im->c1);
         im->c1 = data;
     }
 }
@@ -131,13 +131,13 @@ static void image_resize_horiz(image_t *dst, const image_t *src){
         int j;
         for(j = 0; j < dst->width; j++){
             const int x = floor((float) j * real_scale);
-	        const float dx = j * real_scale - x; 
-	        if(x >= (src->width - 1)){
-	            dst->c1[i * dst->stride + j] = src->c1[i * src->stride + src->width - 1]; 
+            const float dx = j * real_scale - x; 
+            if(x >= (src->width - 1)){
+                dst->c1[i * dst->stride + j] = src->c1[i * src->stride + src->width - 1]; 
             }else{
-	            dst->c1[i * dst->stride + j] = 
-		            (1.0f - dx) * src->c1[i * src->stride + x    ] + 
-		            (       dx) * src->c1[i * src->stride + x + 1];
+                dst->c1[i * dst->stride + j] = 
+                    (1.0f - dx) * src->c1[i * src->stride + x    ] + 
+                    (       dx) * src->c1[i * src->stride + x + 1];
             }
         }
     }
@@ -151,21 +151,21 @@ static void color_image_resize_horiz(color_image_t *dst, const color_image_t *sr
         int j;
         for(j = 0; j < dst->width; j++){
             const int x = floor((float) j * real_scale);
-	        const float dx = j * real_scale - x; 
-	        if(x >= (src->width - 1)){
-	            dst->c1[i * dst->stride + j] = src->c1[i * src->stride + src->width - 1]; 
-	            dst->c2[i * dst->stride + j] = src->c2[i * src->stride + src->width - 1]; 
-	            dst->c3[i * dst->stride + j] = src->c3[i * src->stride + src->width - 1]; 
+            const float dx = j * real_scale - x; 
+            if(x >= (src->width - 1)){
+                dst->c1[i * dst->stride + j] = src->c1[i * src->stride + src->width - 1]; 
+                dst->c2[i * dst->stride + j] = src->c2[i * src->stride + src->width - 1]; 
+                dst->c3[i * dst->stride + j] = src->c3[i * src->stride + src->width - 1]; 
             }else{
-	            dst->c1[i * dst->stride + j] = 
-		            (1.0f - dx) * src->c1[i * src->stride + x    ] + 
-		            (       dx) * src->c1[i * src->stride + x + 1];
-	            dst->c2[i * dst->stride + j] = 
-		            (1.0f - dx) * src->c2[i * src->stride + x    ] + 
-		            (       dx) * src->c2[i * src->stride + x + 1];
-	            dst->c3[i * dst->stride + j] = 
-		            (1.0f - dx) * src->c3[i * src->stride + x    ] + 
-		            (       dx) * src->c3[i * src->stride + x + 1];
+                dst->c1[i * dst->stride + j] = 
+                    (1.0f - dx) * src->c1[i * src->stride + x    ] + 
+                    (       dx) * src->c1[i * src->stride + x + 1];
+                dst->c2[i * dst->stride + j] = 
+                    (1.0f - dx) * src->c2[i * src->stride + x    ] + 
+                    (       dx) * src->c2[i * src->stride + x + 1];
+                dst->c3[i * dst->stride + j] = 
+                    (1.0f - dx) * src->c3[i * src->stride + x    ] + 
+                    (       dx) * src->c3[i * src->stride + x + 1];
             }
         }
     }
@@ -178,14 +178,14 @@ static void image_resize_vert(image_t *dst, const image_t *src){
     for(i = 0; i < dst->width; i++){
         int j;
         for(j = 0; j < dst->height; j++){
-	    const int y = floor((float) j * real_scale);
+        const int y = floor((float) j * real_scale);
         const float dy = j * real_scale - y;
-	    if(y >= (src->height - 1)){
-	            dst->c1[j * dst->stride + i] = src->c1[i + (src->height - 1) * src->stride]; 
+        if(y >= (src->height - 1)){
+                dst->c1[j * dst->stride + i] = src->c1[i + (src->height - 1) * src->stride]; 
             }else{
-	            dst->c1[j * dst->stride + i] =
-		            (1.0f - dy) * src->c1[i + (y    ) * src->stride] + 
-		            (       dy) * src->c1[i + (y + 1) * src->stride];
+                dst->c1[j * dst->stride + i] =
+                    (1.0f - dy) * src->c1[i + (y    ) * src->stride] + 
+                    (       dy) * src->c1[i + (y + 1) * src->stride];
             }
         }
     }
@@ -198,22 +198,22 @@ static void color_image_resize_vert(color_image_t *dst, const color_image_t *src
     for(i = 0; i < dst->width; i++){
         int j;
         for(j = 0; j < dst->height; j++){
-	    const int y = floor((float) j * real_scale);
+        const int y = floor((float) j * real_scale);
         const float dy = j * real_scale - y;
-	    if(y >= (src->height - 1)){
+        if(y >= (src->height - 1)){
             dst->c1[j * dst->stride + i] = src->c1[i + (src->height - 1) * src->stride]; 
-	        dst->c2[j * dst->stride + i] = src->c2[i + (src->height - 1) * src->stride]; 
-	        dst->c3[j * dst->stride + i] = src->c3[i + (src->height - 1) * src->stride]; 
+            dst->c2[j * dst->stride + i] = src->c2[i + (src->height - 1) * src->stride]; 
+            dst->c3[j * dst->stride + i] = src->c3[i + (src->height - 1) * src->stride]; 
         }else{
-	        dst->c1[j * dst->stride + i] =
-		        (1.0f - dy) * src->c1[i +  y      * src->stride] + 
-		        (       dy) * src->c1[i + (y + 1) * src->stride];
+            dst->c1[j * dst->stride + i] =
+                (1.0f - dy) * src->c1[i +  y      * src->stride] + 
+                (       dy) * src->c1[i + (y + 1) * src->stride];
             dst->c2[j * dst->stride + i] =
-		        (1.0f - dy) * src->c2[i +  y      * src->stride] + 
-		        (       dy) * src->c2[i + (y + 1) * src->stride];
-		    dst->c3[j * dst->stride + i] =
-		        (1.0f - dy) * src->c3[i +  y      * src->stride] + 
-		        (       dy) * src->c3[i + (y + 1) * src->stride];
+                (1.0f - dy) * src->c2[i +  y      * src->stride] + 
+                (       dy) * src->c2[i + (y + 1) * src->stride];
+            dst->c3[j * dst->stride + i] =
+                (1.0f - dy) * src->c3[i +  y      * src->stride] + 
+                (       dy) * src->c3[i + (y + 1) * src->stride];
             }
         }
     }
@@ -329,21 +329,21 @@ static void convolve_extract_coeffs(const int order, const float *half_coeffs, f
     float accu = 0.0;
     if(even){
         for(i = 0 ; i <= order; i++){
-	        coeffs[order - i] = coeffs[order + i] = half_coeffs[i];
-        }
-        for(i = 0 ; i <= order; i++){
-	        accu += coeffs[i];
-	        coeffs_accu[2 * order - i] = coeffs_accu[i] = accu;
-        }
-    }else{
-        for(i = 0; i <= order; i++){
-	        coeffs[order - i] = +half_coeffs[i];
-	        coeffs[order + i] = -half_coeffs[i];
+            coeffs[order - i] = coeffs[order + i] = half_coeffs[i];
         }
         for(i = 0 ; i <= order; i++){
             accu += coeffs[i];
-	        coeffs_accu[i] = accu;
-	        coeffs_accu[2 * order - i]= -accu;
+            coeffs_accu[2 * order - i] = coeffs_accu[i] = accu;
+        }
+    }else{
+        for(i = 0; i <= order; i++){
+            coeffs[order - i] = +half_coeffs[i];
+            coeffs[order + i] = -half_coeffs[i];
+        }
+        for(i = 0 ; i <= order; i++){
+            accu += coeffs[i];
+            coeffs_accu[i] = accu;
+            coeffs_accu[2 * order - i]= -accu;
         }
     }
 }
@@ -439,8 +439,8 @@ static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convol
     const float *coeff = conv->coeffs;
     v4sf *srcp = (v4sf*) src->c1, *dstp = (v4sf*) dst->c1;
     // create shifted version of src
-    float *src_p1 = (float*) malloc(sizeof(float)*src->stride),
-        *src_m1 = (float*) malloc(sizeof(float)*src->stride);
+    float *src_p1 = (float*) _aligned_malloc(sizeof(float)*src->stride*2, 16),
+          *src_m1 = src_p1 + src->stride;
     int j;
     for(j=0;j<src->height;j++){
         int i;
@@ -459,8 +459,7 @@ static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convol
             dstp+=1; srcp_m1+=1; srcp+=1; srcp_p1+=1;
         }
     }
-    free(src_p1);
-    free(src_m1);
+    _aligned_free(src_p1);
 }
 
 static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convolution_t *conv){
@@ -469,10 +468,10 @@ static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convol
     const int iterline = (src->stride>>2);
     const float *coeff = conv->coeffs;
     v4sf *srcp = (v4sf*) src->c1, *dstp = (v4sf*) dst->c1;
-    float *src_p1 = (float*) malloc(sizeof(float)*src->stride*4);
-    float *src_p2 = src_p1+src->stride;
-    float *src_m1 = src_p2+src->stride;
-    float *src_m2 = src_m1+src->stride;
+    float *src_p1 = (float*) _aligned_malloc(sizeof(float)*src->stride*4, 16),
+          *src_p2 = src_p1+src->stride,
+          *src_m1 = src_p2+src->stride,
+          *src_m2 = src_m1+src->stride;
     int j;
     for(j=0;j<src->height;j++){
         int i;
@@ -498,7 +497,7 @@ static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convol
             dstp+=1; srcp_m2 +=1; srcp_m1+=1; srcp+=1; srcp_p1+=1; srcp_p2+=1;
         }
     }
-    free(src_p1);
+    _aligned_free(src_p1);
 }
 
 /* perform an horizontal convolution of an image */
@@ -523,30 +522,30 @@ void convolve_horiz(image_t *dest, const image_t *src, const convolution_t *conv
         const float *f0 = coeff + i0;
         float sum;
         for(i = 0; i < -i0; i++){
-	        sum=coeff_accu[-i - 1] * al[0];
-	        for(ii = i1 + i; ii >= 0; ii--){
-	            sum += coeff[ii - i] * al[ii];
+            sum=coeff_accu[-i - 1] * al[0];
+            for(ii = i1 + i; ii >= 0; ii--){
+                sum += coeff[ii - i] * al[ii];
             }
-	        *o++ = sum;
+            *o++ = sum;
         }
         for(; i < src->width - i1; i++){
-	        sum = 0;
-	        for(ii = i1 - i0; ii >= 0; ii--){
-	            sum += f0[ii] * al[ii];
+            sum = 0;
+            for(ii = i1 - i0; ii >= 0; ii--){
+                sum += f0[ii] * al[ii];
             }
-	        al++;
-	        *o++ = sum;
+            al++;
+            *o++ = sum;
         }
         for(; i < src->width; i++){
-	        sum = coeff_accu[src->width - i] * al[src->width - i0 - 1 - i];
-	        for(ii = src->width - i0 - 1 - i; ii >= 0; ii--){
-	            sum += f0[ii] * al[ii];
+            sum = coeff_accu[src->width - i] * al[src->width - i0 - 1 - i];
+            for(ii = src->width - i0 - 1 - i; ii >= 0; ii--){
+                sum += f0[ii] * al[ii];
             }
-	        al++;
-	        *o++ = sum;
+            al++;
+            *o++ = sum;
         }
         for(i = 0; i < src->stride - src->width; i++){
-	        o++;
+            o++;
         }
     }
 }
@@ -574,45 +573,45 @@ void convolve_vert(image_t *dest, const image_t *src, const convolution_t *conv)
         float fa = coeff_accu[-i - 1];
         const float *al = in + i * src->stride;
         for(j = 0; j < src->width; j++){
-	        float sum = fa * in[j];
-	        for(ii = -i; ii <= i1; ii++){
-	            sum += coeff[ii] * al[j + ii * src->stride];
+            float sum = fa * in[j];
+            for(ii = -i; ii <= i1; ii++){
+                sum += coeff[ii] * al[j + ii * src->stride];
             }
-	        *o++ = sum;
+            *o++ = sum;
         }
         for(j = 0; j < src->stride - src->width; j++) 
-	    {
-	        o++;
+        {
+            o++;
         }
     }
     for(; i < src->height - i1; i++){
         const float *al = in + (i + i0) * src->stride;
         for(j = 0; j < src->width; j++){
-	        float sum = 0;
-	        const float *al2 = al;
-	        for(ii = 0; ii <= i1 - i0; ii++){
-	            sum += f0[ii] * al2[0];
-	            al2 += src->stride;
+            float sum = 0;
+            const float *al2 = al;
+            for(ii = 0; ii <= i1 - i0; ii++){
+                sum += f0[ii] * al2[0];
+                al2 += src->stride;
             }
-	        *o++ = sum;
-	        al++;
+            *o++ = sum;
+            al++;
         }
         for(j = 0; j < src->stride - src->width; j++){
-	        o++;
+            o++;
         }
     }
     for(;i < src->height; i++){
         float fa = coeff_accu[src->height - i];
         const float *al = in + i * src->stride;
         for(j = 0; j < src->width; j++){
-	        float sum = fa * alast[j];
-	        for(ii = i0; ii <= src->height - 1 - i; ii++){
-	            sum += coeff[ii] * al[j + ii * src->stride];
+            float sum = fa * alast[j];
+            for(ii = i0; ii <= src->height - 1 - i; ii++){
+                sum += coeff[ii] * al[j + ii * src->stride];
             }
-	        *o++ = sum;
+            *o++ = sum;
         }
         for(j = 0; j < src->stride - src->width; j++){
-	        o++;
+            o++;
         }
     }
 }
@@ -637,8 +636,8 @@ void color_image_convolve_hv(color_image_t *dst, const color_image_t *src, const
     if(horiz_conv != NULL && vert_conv != NULL){
         float *tmp_data = malloc(sizeof(float)*stride*height);
         if(tmp_data == NULL){
-	        fprintf(stderr,"error color_image_convolve_hv(): not enough memory\n");
-	        exit(1);
+            fprintf(stderr,"error color_image_convolve_hv(): not enough memory\n");
+            exit(1);
         }  
         image_t tmp = {width,height,stride,tmp_data};   
         // perform convolution for each channel
@@ -743,16 +742,16 @@ color_image_pyramid_t *color_image_pyramid_create(const color_image_t *src, cons
         const int newheight = (int) (1.5f + (oldheight-1) / scale_factor);
         if( newwidth <= min_size || newheight <= min_size){
             color_image_pyramid_set_size(pyramid, i);
-	        break;
-	    }
+            break;
+        }
         if(spyr>0.0f){
             color_image_t* tmp = color_image_new(oldwidth, oldheight);
-	        color_image_convolve_hv(tmp,pyramid->images[i-1], conv, conv);
-	        pyramid->images[i]= color_image_resize_bilinear(tmp, scale_factor);
-	        color_image_delete(tmp);
-	    }else{
-	        pyramid->images[i] = color_image_resize_bilinear(pyramid->images[i-1], scale_factor);
-	    }
+            color_image_convolve_hv(tmp,pyramid->images[i-1], conv, conv);
+            pyramid->images[i]= color_image_resize_bilinear(tmp, scale_factor);
+            color_image_delete(tmp);
+        }else{
+            pyramid->images[i] = color_image_resize_bilinear(pyramid->images[i-1], scale_factor);
+        }
     }
     if(spyr>0.0f){
         convolution_delete(conv);
