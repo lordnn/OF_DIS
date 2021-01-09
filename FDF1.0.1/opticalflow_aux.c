@@ -399,116 +399,125 @@ void compute_data(image_t *a11, image_t *a12, image_t *a22, image_t *b1, image_t
 
     int i;
     for(i = 0 ; i<uu->height*uu->stride/4 ; i++){
-        __m128 tmp, tmp2, tmp7, tmp8, tmp9, n1, n2, ma11p, ma12p, ma22p, mb1p, mb2p;
+        __m128 tmp, tmp2, tmp3, tmpx, tmpy, tmpxy, n1, n2, ma11p, ma12p, ma22p, mb1p, mb2p;
     #if (SELECTCHANNEL==3)
-        __m128 tmp3, tmp4, tmp5, tmp6, n3, n4, n5, n6;
+        __m128 tmp4, tmp5, tmp6, n3, n4, n5, n6;
     #endif
         ma11p = _mm_load_ps(a11p);
         ma12p = _mm_load_ps(a12p);
         ma22p = _mm_load_ps(a22p);
         mb1p = _mm_load_ps(b1p);
         mb2p = _mm_load_ps(b2p);
+        __m128 mdup = _mm_load_ps(dup);
+        __m128 mdvp = _mm_load_ps(dvp);
         // dpsi color
         if (half_delta_over3) {
-            tmp8 = _mm_load_ps(ix1p);
-            tmp9 = _mm_load_ps(iy1p);
-            tmp  = _mm_add_ps(_mm_load_ps(iz1p), _mm_add_ps(_mm_mul_ps(tmp8, _mm_load_ps(dup)), _mm_mul_ps(tmp9, _mm_load_ps(dvp))));
-            n1 = _mm_add_ps(_mm_mul_ps(tmp8, tmp8), _mm_add_ps(_mm_mul_ps(tmp9, tmp9), dnorm));
+            tmpx = _mm_load_ps(ix1p);
+            tmpy = _mm_load_ps(iy1p);
+            tmp2 = _mm_add_ps(_mm_load_ps(iz1p), _mm_add_ps(_mm_mul_ps(tmpx, mdup), _mm_mul_ps(tmpy, mdvp)));
+            n1 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(_mm_mul_ps(tmpy, tmpy), dnorm));
+            tmp = _mm_div_ps(_mm_mul_ps(tmp2, tmp2), n1);
             #if (SELECTCHANNEL==3)
-            tmp6 = _mm_load_ps(ix2p);
-            tmp7 = _mm_load_ps(iy2p);
-            tmp2 = _mm_add_ps(_mm_load_ps(iz2p), _mm_add_ps(_mm_mul_ps(tmp6, _mm_load_ps(dup)), _mm_mul_ps(tmp7, _mm_load_ps(dvp))));
-            n2 = _mm_add_ps(_mm_mul_ps(tmp6, tmp6), _mm_add_ps(_mm_mul_ps(tmp7, tmp7), dnorm));
-            tmp4 = _mm_load_ps(ix3p);
-            tmp5 = _mm_load_ps(iy3p);
-            tmp3 = _mm_add_ps(_mm_load_ps(iz3p), _mm_add_ps(_mm_mul_ps(tmp4, _mm_load_ps(dup)), _mm_mul_ps(tmp5, _mm_load_ps(dvp))));
-            n3 = _mm_add_ps(_mm_mul_ps(tmp4, tmp4), _mm_add_ps(_mm_mul_ps(tmp5, tmp5), dnorm));
-            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(_mm_add_ps(_mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp, tmp), n1), _mm_div_ps(_mm_mul_ps(tmp2, tmp2), n2)), _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp3,tmp3), n3), epscolor))));
+            tmpx = _mm_load_ps(ix2p);
+            tmpy = _mm_load_ps(iy2p);
+            tmp2 = _mm_add_ps(_mm_load_ps(iz2p), _mm_add_ps(_mm_mul_ps(tmpx, mdup), _mm_mul_ps(tmpy, mdvp)));
+            n2 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(_mm_mul_ps(tmpy, tmpy), dnorm));
+            tmp = _mm_add_ps(tmp, _mm_div_ps(_mm_mul_ps(tmp2, tmp2), n2));
+            tmpx = _mm_load_ps(ix3p);
+            tmpy = _mm_load_ps(iy3p);
+            tmp2 = _mm_add_ps(_mm_load_ps(iz3p), _mm_add_ps(_mm_mul_ps(tmpx, mdup), _mm_mul_ps(tmpy, mdvp)));
+            n3 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(_mm_mul_ps(tmpy, tmpy), dnorm));
+            tmp = _mm_add_ps(tmp, _mm_div_ps(_mm_mul_ps(tmp2, tmp2), n3));
+            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(_mm_add_ps(tmp, epscolor)));
             tmp3 = _mm_div_ps(tmp, n3); tmp2 = _mm_div_ps(tmp, n2); tmp = _mm_div_ps(tmp, n1);
             #else
-            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(_mm_add_ps(_mm_div_ps(_mm_mul_ps(three, _mm_mul_ps(tmp, tmp)), n1), epscolor)));
+            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(_mm_add_ps(_mm_mul_ps(three, tmp), epscolor)));
             tmp  = _mm_div_ps(tmp, n1);
             #endif
-            ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp, _mm_mul_ps(tmp8, tmp8)));
-            ma12p = _mm_add_ps(ma12p, _mm_mul_ps(tmp, _mm_mul_ps(tmp8, tmp9)));
-            ma22p = _mm_add_ps(ma22p, _mm_mul_ps(tmp, _mm_mul_ps(tmp9, tmp9)));
-            mb1p = _mm_add_ps(mb1p, _mm_mul_ps(tmp, _mm_mul_ps(_mm_load_ps(iz1p), tmp8)));
-            mb2p = _mm_add_ps(mb2p, _mm_mul_ps(tmp, _mm_mul_ps(_mm_load_ps(iz1p), tmp9)));
             #if (SELECTCHANNEL==3)
-            ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp2, _mm_mul_ps(tmp6, tmp6)));
-            ma12p = _mm_add_ps(ma12p, _mm_mul_ps(tmp2, _mm_mul_ps(tmp6, tmp7)));
-            ma22p = _mm_add_ps(ma22p, _mm_mul_ps(tmp2, _mm_mul_ps(tmp7, tmp7)));
-            mb1p = _mm_add_ps(mb1p, _mm_mul_ps(tmp2, _mm_mul_ps(_mm_load_ps(iz2p), tmp6)));
-            mb2p = _mm_add_ps(mb2p, _mm_mul_ps(tmp2, _mm_mul_ps(_mm_load_ps(iz2p), tmp7)));
-            ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp3, _mm_mul_ps(tmp4, tmp4)));
-            ma12p = _mm_add_ps(ma12p, _mm_mul_ps(tmp3, _mm_mul_ps(tmp4, tmp5)));
-            ma22p = _mm_add_ps(ma22p, _mm_mul_ps(tmp3, _mm_mul_ps(tmp5, tmp5)));
-            mb1p = _mm_add_ps(mb1p, _mm_mul_ps(tmp3, _mm_mul_ps(_mm_load_ps(iz3p), tmp4)));
-            mb2p = _mm_add_ps(mb2p, _mm_mul_ps(tmp3, _mm_mul_ps(_mm_load_ps(iz3p), tmp5)));
+            ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp3, _mm_mul_ps(tmpx, tmpx)));
+            ma12p = _mm_add_ps(ma12p, _mm_mul_ps(tmp3, _mm_mul_ps(tmpx, tmpy)));
+            ma22p = _mm_add_ps(ma22p, _mm_mul_ps(tmp3, _mm_mul_ps(tmpy, tmpy)));
+            mb1p = _mm_sub_ps(mb1p, _mm_mul_ps(tmp3, _mm_mul_ps(_mm_load_ps(iz3p), tmpx)));
+            mb2p = _mm_sub_ps(mb2p, _mm_mul_ps(tmp3, _mm_mul_ps(_mm_load_ps(iz3p), tmpy)));
+            tmpx = _mm_load_ps(ix2p);
+            tmpy = _mm_load_ps(iy2p);
+            ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp2, _mm_mul_ps(tmpx, tmpx)));
+            ma12p = _mm_add_ps(ma12p, _mm_mul_ps(tmp2, _mm_mul_ps(tmpx, tmpy)));
+            ma22p = _mm_add_ps(ma22p, _mm_mul_ps(tmp2, _mm_mul_ps(tmpy, tmpy)));
+            mb1p = _mm_sub_ps(mb1p, _mm_mul_ps(tmp2, _mm_mul_ps(_mm_load_ps(iz2p), tmpx)));
+            mb2p = _mm_sub_ps(mb2p, _mm_mul_ps(tmp2, _mm_mul_ps(_mm_load_ps(iz2p), tmpy)));
+            tmpx = _mm_load_ps(ix1p);
+            tmpy = _mm_load_ps(iy2p);
             #endif
+            ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp, _mm_mul_ps(tmpx, tmpx)));
+            ma12p = _mm_add_ps(ma12p, _mm_mul_ps(tmp, _mm_mul_ps(tmpx, tmpy)));
+            ma22p = _mm_add_ps(ma22p, _mm_mul_ps(tmp, _mm_mul_ps(tmpy, tmpy)));
+            mb1p = _mm_sub_ps(mb1p, _mm_mul_ps(tmp, _mm_mul_ps(_mm_load_ps(iz1p), tmpx)));
+            mb2p = _mm_sub_ps(mb2p, _mm_mul_ps(tmp, _mm_mul_ps(_mm_load_ps(iz1p), tmpy)));
         }
 
         // dpsi gradient
-        tmp7 = _mm_load_ps(ixx1p);
-        tmp8 = _mm_load_ps(iyy1p);
-        tmp9 = _mm_load_ps(ixy1p);
-        __m128 mdup = _mm_load_ps(dup);
-        __m128 mdvp = _mm_load_ps(dvp);
-        tmp = _mm_add_ps(_mm_load_ps(ixz1p), _mm_add_ps(_mm_mul_ps(tmp7, mdup), _mm_mul_ps(tmp9, mdvp)));
-        tmp2 = _mm_add_ps(_mm_load_ps(iyz1p), _mm_add_ps(_mm_mul_ps(tmp9, mdup), _mm_mul_ps(tmp8, mdvp)));
-        tmp9 = _mm_mul_ps(tmp9, tmp9);
-        n1 = _mm_add_ps(_mm_mul_ps(tmp7, tmp7), _mm_add_ps(tmp9, dnorm));
-        n2 = _mm_add_ps(_mm_mul_ps(tmp8, tmp8), _mm_add_ps(tmp9, dnorm));
+        tmpx = _mm_load_ps(ixx1p);
+        tmpy = _mm_load_ps(iyy1p);
+        tmpxy = _mm_load_ps(ixy1p);
+        tmp2 = _mm_add_ps(_mm_load_ps(ixz1p), _mm_add_ps(_mm_mul_ps(tmpx, mdup), _mm_mul_ps(tmpxy, mdvp)));
+        tmp3 = _mm_add_ps(_mm_load_ps(iyz1p), _mm_add_ps(_mm_mul_ps(tmpxy, mdup), _mm_mul_ps(tmpy, mdvp)));
+        tmpxy = _mm_mul_ps(tmpxy, tmpxy);
+        n1 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(tmpxy, dnorm));
+        n2 = _mm_add_ps(_mm_mul_ps(tmpy, tmpy), _mm_add_ps(tmpxy, dnorm));
+        tmp = _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp2, tmp2), n1), _mm_div_ps(_mm_mul_ps(tmp3, tmp3), n2));
         #if (SELECTCHANNEL==3)
-        tmp7 = _mm_load_ps(ixx2p);
-        tmp8 = _mm_load_ps(iyy2p);
-        tmp9 = _mm_load_ps(ixy2p);
-        tmp3 = _mm_add_ps(_mm_load_ps(ixz2p), _mm_add_ps(_mm_mul_ps(tmp7, mdup), _mm_mul_ps(tmp9, mdvp)));
-        tmp4 = _mm_add_ps(_mm_load_ps(iyz2p), _mm_add_ps(_mm_mul_ps(tmp9, mdup), _mm_mul_ps(tmp8, mdvp)));
-        tmp9 = _mm_mul_ps(tmp9, tmp9);
-        n3 = _mm_add_ps(_mm_mul_ps(tmp7, tmp7), _mm_add_ps(tmp9, dnorm));
-        n4 = _mm_add_ps(_mm_mul_ps(tmp8, tmp8), _mm_add_ps(tmp9, dnorm));
-        tmp7 = _mm_load_ps(ixx3p);
-        tmp8 = _mm_load_ps(iyy3p);
-        tmp9 = _mm_load_ps(ixy3p);
-        tmp5 = _mm_add_ps(_mm_load_ps(ixz3p), _mm_add_ps(_mm_mul_ps(tmp7, mdup), _mm_mul_ps(tmp9, mdvp)));
-        tmp6 = _mm_add_ps(_mm_load_ps(iyz3p), _mm_add_ps(_mm_mul_ps(tmp9, mdup), _mm_mul_ps(tmp8, mdvp)));
-        tmp9 = _mm_mul_ps(tmp9, tmp9);
-        n5 = _mm_add_ps(_mm_mul_ps(tmp7, tmp7), _mm_add_ps(tmp9, dnorm));
-        n6 = _mm_add_ps(_mm_mul_ps(tmp8, tmp8), _mm_add_ps(tmp9, dnorm));
-
-        tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hgover3), _mm_sqrt_ps(_mm_add_ps(_mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp, tmp), n1), _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp2, tmp2), n2), _mm_div_ps(_mm_mul_ps(tmp3, tmp3), n3))), _mm_add_ps(_mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp4, tmp4), n4), _mm_div_ps(_mm_mul_ps(tmp5, tmp5), n5)), _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp6, tmp6), n6), epsgrad)))));
+        tmpx = _mm_load_ps(ixx2p);
+        tmpy = _mm_load_ps(iyy2p);
+        tmpxy = _mm_load_ps(ixy2p);
+        tmp2 = _mm_add_ps(_mm_load_ps(ixz2p), _mm_add_ps(_mm_mul_ps(tmpx, mdup), _mm_mul_ps(tmpxy, mdvp)));
+        tmp3 = _mm_add_ps(_mm_load_ps(iyz2p), _mm_add_ps(_mm_mul_ps(tmpxy, mdup), _mm_mul_ps(tmpy, mdvp)));
+        tmpxy = _mm_mul_ps(tmpxy, tmpxy);
+        n3 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(tmpxy, dnorm));
+        n4 = _mm_add_ps(_mm_mul_ps(tmpy, tmpy), _mm_add_ps(tmpxy, dnorm));
+        tmp = _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp2, tmp2), n3), _mm_div_ps(_mm_mul_ps(tmp3, tmp3), n4));
+        tmpx = _mm_load_ps(ixx3p);
+        tmpy = _mm_load_ps(iyy3p);
+        tmpxy = _mm_load_ps(ixy3p);
+        tmp2 = _mm_add_ps(_mm_load_ps(ixz3p), _mm_add_ps(_mm_mul_ps(tmpx, mdup), _mm_mul_ps(tmpxy, mdvp)));
+        tmp3 = _mm_add_ps(_mm_load_ps(iyz3p), _mm_add_ps(_mm_mul_ps(tmpxy, mdup), _mm_mul_ps(tmpy, mdvp)));
+        tmpxy = _mm_mul_ps(tmpxy, tmpxy);
+        n5 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(tmpxy, dnorm));
+        n6 = _mm_add_ps(_mm_mul_ps(tmpy, tmpy), _mm_add_ps(tmpxy, dnorm));
+        tmp = _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp2, tmp2), n5), _mm_div_ps(_mm_mul_ps(tmp3, tmp3), n6));
+        tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hgover3), _mm_sqrt_ps(_mm_add_ps(tmp, epsgrad)));
         tmp6 = _mm_div_ps(tmp, n6); tmp5 = _mm_div_ps(tmp, n5); tmp4 = _mm_div_ps(tmp, n4); tmp3 = _mm_div_ps(tmp, n3); tmp2 = _mm_div_ps(tmp, n2); tmp = _mm_div_ps(tmp, n1);
         #else
-        tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hgover3), _mm_sqrt_ps(_mm_add_ps(_mm_mul_ps(three, _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp, tmp), n1), _mm_div_ps(_mm_mul_ps(tmp2, tmp2), n2))), epsgrad)));
+        tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hgover3), _mm_sqrt_ps(_mm_add_ps(_mm_mul_ps(three, tmp), epsgrad)));
         tmp2 = _mm_div_ps(tmp, n2); tmp = _mm_div_ps(tmp, n1);
         #endif
         #if (SELECTCHANNEL==3)
-        ma11p = _mm_add_ps(ma11p, _mm_add_ps(_mm_mul_ps(tmp5, _mm_mul_ps(tmp7, tmp7)), _mm_mul_ps(tmp6, tmp9)));
-        ma22p = _mm_add_ps(ma22p, _mm_add_ps(_mm_mul_ps(tmp6, _mm_mul_ps(tmp8, tmp8)), _mm_mul_ps(tmp5, tmp9)));
-        tmp9 = _mm_load_ps(ixy3p);
-        ma12p = _mm_add_ps(ma12p, _mm_mul_ps(_mm_add_ps(_mm_mul_ps(tmp5, tmp7), _mm_mul_ps(tmp6, tmp8)), tmp9));
-        mb1p = _mm_sub_ps(mb1p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp5,tmp7), _mm_load_ps(ixz3p)), _mm_mul_ps(_mm_mul_ps(tmp6, tmp9), _mm_load_ps(iyz3p))));
-        mb2p = _mm_sub_ps(mb2p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp6,tmp8), _mm_load_ps(iyz3p)), _mm_mul_ps(_mm_mul_ps(tmp5, tmp9), _mm_load_ps(ixz3p))));
-        tmp7 = _mm_load_ps(ixx2p);
-        tmp8 = _mm_load_ps(iyy2p);
-        tmp9 = _mm_load_ps(ixy2p);
-        ma12p = _mm_add_ps(ma12p, _mm_mul_ps(_mm_add_ps(_mm_mul_ps(tmp3, tmp7), _mm_mul_ps(tmp4, tmp8)), tmp9));
-        mb1p = _mm_sub_ps(mb1p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp3, tmp7), _mm_load_ps(ixz2p)), _mm_mul_ps(_mm_mul_ps(tmp4, tmp9), _mm_load_ps(iyz2p))));
-        mb2p = _mm_sub_ps(mb2p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp4, tmp8), _mm_load_ps(iyz2p)), _mm_mul_ps(_mm_mul_ps(tmp3, tmp9), _mm_load_ps(ixz2p))));
-        tmp9 = _mm_mul_ps(tmp9, tmp9);
-        ma11p = _mm_add_ps(ma11p, _mm_add_ps(_mm_mul_ps(tmp3, _mm_mul_ps(tmp7, tmp7)), _mm_mul_ps(tmp4, tmp9)));
-        ma22p = _mm_add_ps(ma22p, _mm_add_ps(_mm_mul_ps(tmp4, _mm_mul_ps(tmp8, tmp8)), _mm_mul_ps(tmp3, tmp9)));
-        tmp7 = _mm_load_ps(ixx1p);
-        tmp8 = _mm_load_ps(iyy1p);
+        ma11p = _mm_add_ps(ma11p, _mm_add_ps(_mm_mul_ps(tmp5, _mm_mul_ps(tmpx, tmpx)), _mm_mul_ps(tmp6, tmpxy)));
+        ma22p = _mm_add_ps(ma22p, _mm_add_ps(_mm_mul_ps(tmp6, _mm_mul_ps(tmpy, tmpy)), _mm_mul_ps(tmp5, tmpxy)));
+        tmpxy = _mm_load_ps(ixy3p);
+        ma12p = _mm_add_ps(ma12p, _mm_mul_ps(_mm_add_ps(_mm_mul_ps(tmp5, tmpx), _mm_mul_ps(tmp6, tmpy)), tmpxy));
+        mb1p = _mm_sub_ps(mb1p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp5, tmpx), _mm_load_ps(ixz3p)), _mm_mul_ps(_mm_mul_ps(tmp6, tmpxy), _mm_load_ps(iyz3p))));
+        mb2p = _mm_sub_ps(mb2p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp6, tmpy), _mm_load_ps(iyz3p)), _mm_mul_ps(_mm_mul_ps(tmp5, tmpxy), _mm_load_ps(ixz3p))));
+        tmpx = _mm_load_ps(ixx2p);
+        tmpy = _mm_load_ps(iyy2p);
+        tmpxy = _mm_load_ps(ixy2p);
+        ma12p = _mm_add_ps(ma12p, _mm_mul_ps(_mm_add_ps(_mm_mul_ps(tmp3, tmpx), _mm_mul_ps(tmp4, tmpy)), tmpxy));
+        mb1p = _mm_sub_ps(mb1p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp3, tmpx), _mm_load_ps(ixz2p)), _mm_mul_ps(_mm_mul_ps(tmp4, tmpxy), _mm_load_ps(iyz2p))));
+        mb2p = _mm_sub_ps(mb2p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp4, tmpy), _mm_load_ps(iyz2p)), _mm_mul_ps(_mm_mul_ps(tmp3, tmpxy), _mm_load_ps(ixz2p))));
+        tmpxy = _mm_mul_ps(tmpxy, tmpxy);
+        ma11p = _mm_add_ps(ma11p, _mm_add_ps(_mm_mul_ps(tmp3, _mm_mul_ps(tmpx, tmpx)), _mm_mul_ps(tmp4, tmpxy)));
+        ma22p = _mm_add_ps(ma22p, _mm_add_ps(_mm_mul_ps(tmp4, _mm_mul_ps(tmpy, tmpy)), _mm_mul_ps(tmp3, tmpxy)));
+        tmpx = _mm_load_ps(ixx1p);
+        tmpy = _mm_load_ps(iyy1p);
         #endif
-        tmp9 = _mm_load_ps(ixy1p);
-        ma12p = _mm_add_ps(ma12p, _mm_mul_ps(_mm_add_ps(_mm_mul_ps(tmp, tmp7), _mm_mul_ps(tmp2, tmp8)), tmp9));
-        mb1p = _mm_sub_ps(mb1p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp, tmp7), _mm_load_ps(ixz1p)), _mm_mul_ps(_mm_mul_ps(tmp2, tmp9), _mm_load_ps(iyz1p))));
-        mb2p = _mm_sub_ps(mb2p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp2, tmp8), _mm_load_ps(iyz1p)), _mm_mul_ps(_mm_mul_ps(tmp, tmp9), _mm_load_ps(ixz1p))));
-        tmp9 = _mm_mul_ps(tmp9, tmp9);
-        ma11p += _mm_add_ps(ma11p, _mm_add_ps(_mm_mul_ps(tmp, _mm_mul_ps(tmp7, tmp7)), _mm_mul_ps(tmp2, tmp9)));
-        ma22p += _mm_add_ps(ma22p, _mm_add_ps(_mm_mul_ps(tmp2, _mm_mul_ps(tmp8, tmp8)), _mm_mul_ps(tmp, tmp9)));
+        tmpxy = _mm_load_ps(ixy1p);
+        ma12p = _mm_add_ps(ma12p, _mm_mul_ps(_mm_add_ps(_mm_mul_ps(tmp, tmpx), _mm_mul_ps(tmp2, tmpy)), tmpxy));
+        mb1p = _mm_sub_ps(mb1p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp, tmpx), _mm_load_ps(ixz1p)), _mm_mul_ps(_mm_mul_ps(tmp2, tmpxy), _mm_load_ps(iyz1p))));
+        mb2p = _mm_sub_ps(mb2p, _mm_add_ps(_mm_mul_ps(_mm_mul_ps(tmp2, tmpy), _mm_load_ps(iyz1p)), _mm_mul_ps(_mm_mul_ps(tmp, tmpxy), _mm_load_ps(ixz1p))));
+        tmpxy = _mm_mul_ps(tmpxy, tmpxy);
+        ma11p = _mm_add_ps(ma11p, _mm_add_ps(_mm_mul_ps(tmp, _mm_mul_ps(tmpx, tmpx)), _mm_mul_ps(tmp2, tmpxy)));
+        ma22p = _mm_add_ps(ma22p, _mm_add_ps(_mm_mul_ps(tmp2, _mm_mul_ps(tmpy, tmpy)), _mm_mul_ps(tmp, tmpxy)));
 
         #if (SELECTCHANNEL==1 | SELECTCHANNEL==2)  // multiply system to make smoothing parameters same for RGB and single-channel image
         ma11p = _mm_mul_ps(ma11p, three);
@@ -530,7 +539,6 @@ void compute_data(image_t *a11, image_t *a12, image_t *a22, image_t *b1, image_t
         ix3p+=STEP; iy3p+=STEP; iz3p+=STEP; ixx3p+=STEP; ixy3p+=STEP; iyy3p+=STEP; ixz3p+=STEP; iyz3p+=STEP;
         #endif
         uup+=STEP;vvp+=STEP;wxp+=STEP; wyp+=STEP;
-
     }
 #undef STEP
 }
@@ -684,7 +692,6 @@ void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, imag
         ix3p+=STEP; iy3p+=STEP; iz3p+=STEP; ixx3p+=STEP; ixy3p+=STEP; iyy3p+=STEP; ixz3p+=STEP; iyz3p+=STEP;
         #endif
         uup+=STEP; wxp+=STEP;
-
     }
 #undef STEP
 }
