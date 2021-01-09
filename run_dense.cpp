@@ -3,9 +3,10 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
+#include <chrono>
 #include <iostream>
-#include <sys/time.h>
 #include <fstream>
+#include <vector>
     
 #include "oflow.h"
 
@@ -18,7 +19,7 @@ void SaveFlowFile(cv::Mat& img, const char* filename)
   cv::Size szt = img.size();
   int width = szt.width, height = szt.height;
   int nc = img.channels();
-  float tmp[nc];
+  std::vector<float> tmp(nc);
 
   FILE *stream = fopen(filename, "wb");
   if (stream == 0)
@@ -47,10 +48,10 @@ void SaveFlowFile(cv::Mat& img, const char* filename)
         tmp[1] = img.at<cv::Vec4f>(y,x)[1];
         tmp[2] = img.at<cv::Vec4f>(y,x)[2];
         tmp[3] = img.at<cv::Vec4f>(y,x)[3];
-      }	  
+      }
 
-      if ((int)fwrite(tmp, sizeof(float), nc, stream) != nc)
-        cout << "WriteFile: problem writing data" << endl;         
+      if ((int)fwrite(tmp.data(), sizeof(float), nc, stream) != nc)
+        cout << "WriteFile: problem writing data" << endl;
     }
   }
   fclose(stream);
@@ -60,23 +61,23 @@ void SaveFlowFile(cv::Mat& img, const char* filename)
 void SavePFMFile(cv::Mat& img, const char* filename)
 {
   cv::Size szt = img.size();
-  
+
   FILE *stream = fopen(filename, "wb");
   if (stream == 0)
     cout << "WriteFile: could not open file" << endl;
 
   // write the header
-  fprintf(stream, "Pf\n%d %d\n%f\n", szt.width, szt.height, (float)-1.0f);    
-  
+  fprintf(stream, "Pf\n%d %d\n%f\n", szt.width, szt.height, (float)-1.0f);
+
   for (int y = szt.height-1; y >= 0 ; --y) 
   {
     for (int x = 0; x < szt.width; ++x) 
     {
       float tmp = -img.at<float>(y,x);
       if ((int)fwrite(&tmp, sizeof(float), 1, stream) != 1)
-        cout << "WriteFile: problem writing data" << endl;         
+        cout << "WriteFile: problem writing data" << endl;
     }
-  }  
+  }
   fclose(stream);
 }
 
@@ -148,9 +149,9 @@ void ConstructImgPyramide(const cv::Mat & img_ao_fmat, cv::Mat * img_ao_fmat_pyr
       }
       else
         cv::resize(img_ao_fmat_pyr[i-1], img_ao_fmat_pyr[i], cv::Size(), .5, .5, cv::INTER_LINEAR);
-	      
+          
       img_ao_fmat_pyr[i].convertTo(img_ao_fmat_pyr[i], rpyrtype);
-	
+    
       if ( getgrad ) 
       {
         cv::Sobel( img_ao_fmat_pyr[i], img_ao_dx_fmat_pyr[i], CV_32F, 1, 0, 3, 1/8.0, 0, cv::BORDER_DEFAULT );
@@ -172,7 +173,7 @@ void ConstructImgPyramide(const cv::Mat & img_ao_fmat, cv::Mat * img_ao_fmat_pyr
         copyMakeBorder(img_ao_dy_fmat_pyr[i],img_ao_dy_fmat_pyr[i],imgpadding,imgpadding,imgpadding,imgpadding,cv::BORDER_CONSTANT , 0);
 
         img_ao_dx_pyr[i] = (float*)img_ao_dx_fmat_pyr[i].data;
-        img_ao_dy_pyr[i] = (float*)img_ao_dy_fmat_pyr[i].data;      
+        img_ao_dy_pyr[i] = (float*)img_ao_dy_fmat_pyr[i].data;
       }
     }
 }
@@ -184,8 +185,8 @@ int AutoFirstScaleSelect(int imgwidth, int fratio, int patchsize)
 
 int main( int argc, char** argv )
 {
-  struct timeval tv_start_all, tv_end_all;
-  gettimeofday(&tv_start_all, NULL);
+  std::chrono::time_point<std::chrono::steady_clock> tv_start_all, tv_end_all;
+  tv_start_all = std::chrono::steady_clock::now();
   
   
   
@@ -196,8 +197,8 @@ int main( int argc, char** argv )
    
   cv::Mat img_ao_mat, img_bo_mat, img_tmp;
   int rpyrtype, nochannels, incoltype;
-  #if (SELECTCHANNEL==1 | SELECTCHANNEL==2) // use Intensity or Gradient image      
-  incoltype = CV_LOAD_IMAGE_GRAYSCALE;        
+  #if (SELECTCHANNEL==1 | SELECTCHANNEL==2) // use Intensity or Gradient image
+  incoltype = CV_LOAD_IMAGE_GRAYSCALE;
   rpyrtype = CV_32FC1;
   nochannels = 1;
   #elif (SELECTCHANNEL==3) // use RGB image
@@ -206,62 +207,62 @@ int main( int argc, char** argv )
   nochannels = 3;      
   #endif
   img_ao_mat = cv::imread(imgfile_ao, incoltype);   // Read the file
-  img_bo_mat = cv::imread(imgfile_bo, incoltype);   // Read the file    
+  img_bo_mat = cv::imread(imgfile_bo, incoltype);   // Read the file
   cv::Mat img_ao_fmat, img_bo_fmat;
   cv::Size sz = img_ao_mat.size();
   int width_org = sz.width;   // unpadded original image size
   int height_org = sz.height;  // unpadded original image size 
-  
-  
-  
-  
+
+
+
+
   // *** Parse rest of parameters, See oflow.h for definitions.
   int lv_f, lv_l, maxiter, miniter, patchsz, patnorm, costfct, tv_innerit, tv_solverit, verbosity;
   float mindprate, mindrrate, minimgerr, poverl, tv_alpha, tv_gamma, tv_delta, tv_sor;
   bool usefbcon, usetvref;
   //bool hasinfile; // initialization flow file
   //char *infile = nullptr;
-  
+
   if (argc<=5)  // Use operation point X, set scales automatically
   {
-    mindprate = 0.05; mindrrate = 0.95; minimgerr = 0.0;    
+    mindprate = 0.05; mindrrate = 0.95; minimgerr = 0.0;
     usefbcon = 0; patnorm = 1; costfct = 0; 
     tv_alpha = 10.0; tv_gamma = 10.0; tv_delta = 5.0;
     tv_innerit = 1; tv_solverit = 3; tv_sor = 1.6;
     verbosity = 2; // Default: Plot detailed timings
-        
+
     int fratio = 5; // For automatic selection of coarsest scale: 1/fratio * width = maximum expected motion magnitude in image. Set lower to restrict search space.
-    
+
     int sel_oppoint = 2; // Default operating point
     if (argc==5)         // Use provided operating point
       sel_oppoint=atoi(argv[4]);
-      
+
     switch (sel_oppoint)
     {
       case 1:
         patchsz = 8; poverl = 0.3; 
         lv_f = AutoFirstScaleSelect(width_org, fratio, patchsz);
-        lv_l = std::max(lv_f-2,0); maxiter = 16; miniter = 16; 
+        lv_l = std::max(lv_f-2,0); maxiter = 16; miniter = 16;
         usetvref = 0; 
         break;
       case 3:
-        patchsz = 12; poverl = 0.75; 
+        patchsz = 12; poverl = 0.75;
         lv_f = AutoFirstScaleSelect(width_org, fratio, patchsz);
-        lv_l = std::max(lv_f-4,0); maxiter = 16; miniter = 16; 
+        lv_l = std::max(lv_f-4,0); maxiter = 16; miniter = 16;
         usetvref = 1; 
         break;
       case 4:
         patchsz = 12; poverl = 0.75; 
         lv_f = AutoFirstScaleSelect(width_org, fratio, patchsz);
-        lv_l = std::max(lv_f-5,0); maxiter = 128; miniter = 128; 
+        lv_l = std::max(lv_f-5,0); maxiter = 128; miniter = 128;
         usetvref = 1; 
         break;        
       case 2:
       default:
         patchsz = 8; poverl = 0.4; 
         lv_f = AutoFirstScaleSelect(width_org, fratio, patchsz);
-        lv_l = std::max(lv_f-2,0); maxiter = 12; miniter = 12; 
-        usetvref = 1; 
+        lv_l = std::max(lv_f-2,0); maxiter = 12; miniter = 12;
+        usetvref = 1;
         break;
 
     }
@@ -290,11 +291,11 @@ int main( int argc, char** argv )
     tv_sor = atof(argv[acnt++]);    
     verbosity = atoi(argv[acnt++]);
     //hasinfile = (bool)atoi(argv[acnt++]);   // initialization flow file
-    //if (hasinfile) infile = argv[acnt++];  
+    //if (hasinfile) infile = argv[acnt++];
   }
 
-  
-  
+
+
   // *** Pad image such that width and height are restless divisible on all scales (except last)
   int padw=0, padh=0;
   int scfct = pow(2,lv_f); // enforce restless division by this number on coarsest scale
@@ -302,26 +303,26 @@ int main( int argc, char** argv )
   int div = sz.width % scfct;
   if (div>0) padw = scfct - div;
   div = sz.height % scfct;
-  if (div>0) padh = scfct - div;          
+  if (div>0) padh = scfct - div;
   if (padh>0 || padw>0)
   {
     copyMakeBorder(img_ao_mat,img_ao_mat,floor((float)padh/2.0f),ceil((float)padh/2.0f),floor((float)padw/2.0f),ceil((float)padw/2.0f),cv::BORDER_REPLICATE);
     copyMakeBorder(img_bo_mat,img_bo_mat,floor((float)padh/2.0f),ceil((float)padh/2.0f),floor((float)padw/2.0f),ceil((float)padw/2.0f),cv::BORDER_REPLICATE);
   }
   sz = img_ao_mat.size();  // padded image size, ensures divisibility by 2 on all scales (except last)
-  
+
   // Timing, image loading
   if (verbosity > 1)
   {
-    gettimeofday(&tv_end_all, NULL);
-    double tt = (tv_end_all.tv_sec-tv_start_all.tv_sec)*1000.0f + (tv_end_all.tv_usec-tv_start_all.tv_usec)/1000.0f;
+    tv_end_all = std::chrono::steady_clock::now();
+    double tt = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
     printf("TIME (Image loading     ) (ms): %3g\n", tt);
-    gettimeofday(&tv_start_all, NULL);
+    tv_start_all = std::chrono::steady_clock::now();
   }
-  
-  
-  
-  
+
+
+
+
   //  *** Generate scale pyramides
   img_ao_mat.convertTo(img_ao_fmat, CV_32F); // convert to float
   img_bo_mat.convertTo(img_bo_fmat, CV_32F);
@@ -332,26 +333,26 @@ int main( int argc, char** argv )
   const float* img_ao_dy_pyr[lv_f+1];
   const float* img_bo_dx_pyr[lv_f+1];
   const float* img_bo_dy_pyr[lv_f+1];
-  
+
   cv::Mat img_ao_fmat_pyr[lv_f+1];
   cv::Mat img_bo_fmat_pyr[lv_f+1];
   cv::Mat img_ao_dx_fmat_pyr[lv_f+1];
   cv::Mat img_ao_dy_fmat_pyr[lv_f+1];
   cv::Mat img_bo_dx_fmat_pyr[lv_f+1];
   cv::Mat img_bo_dy_fmat_pyr[lv_f+1];
-  
+
   ConstructImgPyramide(img_ao_fmat, img_ao_fmat_pyr, img_ao_dx_fmat_pyr, img_ao_dy_fmat_pyr, img_ao_pyr, img_ao_dx_pyr, img_ao_dy_pyr, lv_f, lv_l, rpyrtype, 1, patchsz, padw, padh);
   ConstructImgPyramide(img_bo_fmat, img_bo_fmat_pyr, img_bo_dx_fmat_pyr, img_bo_dy_fmat_pyr, img_bo_pyr, img_bo_dx_pyr, img_bo_dy_pyr, lv_f, lv_l, rpyrtype, 1, patchsz, padw, padh);
 
   // Timing, image gradients and pyramid
   if (verbosity > 1)
   {
-    gettimeofday(&tv_end_all, NULL);
-    double tt = (tv_end_all.tv_sec-tv_start_all.tv_sec)*1000.0f + (tv_end_all.tv_usec-tv_start_all.tv_usec)/1000.0f;
+    tv_end_all = std::chrono::steady_clock::now();
+    double tt = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
     printf("TIME (Pyramide+Gradients) (ms): %3g\n", tt);
   }
 
-  
+
 //     // Read Initial Truth flow (if available)
 //     float * initptr = nullptr;
 //     cv::Mat flowinit;
@@ -377,9 +378,9 @@ int main( int argc, char** argv )
 //       initptr = (float*)flowinit.data;
 //     }
 
-  
-  
-  
+
+
+
   //  *** Run main optical flow / depth algorithm
   float sc_fct = pow(2,lv_l);
   #if (SELECTMODE==1)
@@ -399,10 +400,10 @@ int main( int argc, char** argv )
                     usetvref, tv_alpha, tv_gamma, tv_delta, tv_innerit, tv_solverit, tv_sor,
                     verbosity);    
 
-  if (verbosity > 1) gettimeofday(&tv_start_all, NULL);
-      
-  
-  
+  if (verbosity > 1) tv_start_all = std::chrono::steady_clock::now();
+
+
+
   // *** Resize to original scale, if not run to finest level
   if (lv_l != 0)
   {
@@ -413,24 +414,18 @@ int main( int argc, char** argv )
   // If image was padded, remove padding before saving to file
   flowout = flowout(cv::Rect((int)floor((float)padw/2.0f),(int)floor((float)padh/2.0f),width_org,height_org));
 
-  // Save Result Image    
+  // Save Result Image
   #if (SELECTMODE==1)
   SaveFlowFile(flowout, outfile);
   #else
-  SavePFMFile(flowout, outfile);      
+  SavePFMFile(flowout, outfile);
   #endif
 
   if (verbosity > 1)
   {
-    gettimeofday(&tv_end_all, NULL);
-    double tt = (tv_end_all.tv_sec-tv_start_all.tv_sec)*1000.0f + (tv_end_all.tv_usec-tv_start_all.tv_usec)/1000.0f;
+    tv_end_all = std::chrono::steady_clock::now();
+    double tt = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
     printf("TIME (Saving flow file  ) (ms): %3g\n", tt);
   }
-    
   return 0;
 }
-
-
-    
-
-
