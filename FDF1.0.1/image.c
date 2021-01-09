@@ -7,7 +7,6 @@
 #include "image.h"
 
 #include <xmmintrin.h>
-typedef __v4sf v4sf;
 
 /********** Create/Delete **********/
 
@@ -22,7 +21,7 @@ image_t *image_new(const int width, const int height){
     image->height = height;  
     image->stride = ( (width+3) / 4 ) * 4;
     image->c1 = (float*) _aligned_malloc(image->stride*height*sizeof(float), 16);
-    if(image->c1== NULL){
+    if(image->c1 == NULL){
         fprintf(stderr, "Error: image_new() - not enough memory !\n");
         exit(1);
     }
@@ -45,11 +44,11 @@ void image_erase(image_t *image){
 /* multiply an image by a scalar */
 void image_mul_scalar(image_t *image, const float scalar){
     int i;
-    v4sf* imp = (v4sf*) image->c1;
-    const v4sf scalarp = {scalar,scalar,scalar,scalar};
+    float *imp = image->c1;
+    const __m128 scalarp = _mm_set1_ps(scalar);
     for( i=0 ; i<image->stride/4*image->height ; i++){
-        (*imp) *= scalarp;
-        imp+=1;
+        _mm_store_ps(imp, _mm_mul_ps(_mm_load_ps(imp), scalarp));
+        imp+=4;
     }
 }
 
@@ -374,130 +373,149 @@ convolution_t *convolution_new(const int order, const float *half_coeffs, const 
 }
 
 static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolution_t *conv){
-    const int iterline = (src->stride>>2)+1;
+#define STEP 4
+    const int iterline = src->stride>>2;
     const float *coeff = conv->coeffs;
     //const float *coeff_accu = conv->coeffs_accu;
-    v4sf *srcp = (v4sf*) src->c1, *dstp = (v4sf*) dst->c1;
-    v4sf *srcp_p1 = (v4sf*) (src->c1+src->stride);
+    const float *srcp = src->c1, *srcp_p1 = src->c1+src->stride;
+    float *dstp = dst->c1;
     int i;
-    for(i=iterline ; --i ; ){ // first line
-        *dstp = (coeff[0]+coeff[1])*(*srcp) + coeff[2]*(*srcp_p1);
-        dstp+=1; srcp+=1; srcp_p1+=1;
+    __m128 mc012 = _mm_set1_ps(coeff[0]+coeff[1]);
+    const __m128 mc2 = _mm_set1_ps(coeff[2]);
+    for(i=iterline ; i-- ; ){ // first line
+        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp)), _mm_mul_ps(mc2, _mm_load_ps(srcp_p1))));
+        dstp+=STEP; srcp+=STEP; srcp_p1+=STEP;
     }
-    v4sf* srcp_m1 = (v4sf*) src->c1; 
-    for(i=src->height-1 ; --i ; ){ // others line
+    const float *srcp_m1 = src->c1; 
+    const __m128 mc0 = _mm_set1_ps(coeff[0]);
+    mc012 = _mm_set1_ps(coeff[1]);
+    for(i=src->height-2 ; i-- ; ){ // others line
         int j;
-        for(j=iterline ; --j ; ){
-            *dstp = coeff[0]*(*srcp_m1) + coeff[1]*(*srcp) + coeff[2]*(*srcp_p1);
-            dstp+=1; srcp_m1+=1; srcp+=1; srcp_p1+=1;
+        for(j=iterline ; j-- ; ){
+            _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m1)), _mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp)), _mm_mul_ps(mc2, _mm_load_ps(srcp_p1)))));
+            dstp+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP;
         }
-    }       
-    for(i=iterline ; --i ; ){ // last line
-        *dstp = coeff[0]*(*srcp_m1) + (coeff[1]+coeff[2])*(*srcp);
-        dstp+=1; srcp_m1+=1; srcp+=1; 
-    }  
+    }
+    mc012 = _mm_set1_ps(coeff[1]+coeff[2]);
+    for(i=iterline ; i-- ; ){ // last line
+        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc012, _mm_load_ps(srcp))));
+        dstp+=STEP; srcp_m1+=STEP; srcp+=STEP;
+    }
+#undef STEP
 }
 
 static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolution_t *conv){
-    const int iterline = (src->stride>>2)+1;
+#define STEP 4
+    const int iterline = src->stride>>2;
     const float *coeff = conv->coeffs;
     //const float *coeff_accu = conv->coeffs_accu;
-    v4sf *srcp = (v4sf*) src->c1, *dstp = (v4sf*) dst->c1;
-    v4sf *srcp_p1 = (v4sf*) (src->c1+src->stride);
-    v4sf *srcp_p2 = (v4sf*) (src->c1+2*src->stride);
+    const float *srcp = src->c1, *srcp_p1 = srcp + src->stride, *srcp_p2 = srcp_p1 + src->stride;
+    float *dstp = dst->c1;
+    __m128 mc012 = _mm_set1_ps(coeff[0]+coeff[1]+coeff[2]);
+    const __m128 mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
     int i;
-    for(i=iterline ; --i ; ){ // first line
-        *dstp = (coeff[0]+coeff[1]+coeff[2])*(*srcp) + coeff[3]*(*srcp_p1) + coeff[4]*(*srcp_p2);
-        dstp+=1; srcp+=1; srcp_p1+=1; srcp_p2+=1;
+    for(i=iterline ; i-- ; ){ // first line
+        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp)), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2)))));
+        dstp+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
     }
-    v4sf* srcp_m1 = (v4sf*) src->c1;
-    for(i=iterline ; --i ; ){ // second line
-        *dstp = (coeff[0]+coeff[1])*(*srcp_m1) + coeff[2]*(*srcp) + coeff[3]*(*srcp_p1) + coeff[4]*(*srcp_p2);
-        dstp+=1; srcp_m1+=1; srcp+=1; srcp_p1+=1; srcp_p2+=1;
-    }   
-    v4sf* srcp_m2 = (v4sf*) src->c1;
-    for(i=src->height-3 ; --i ; ){ // others line
+    mc012 = _mm_set1_ps(coeff[0]+coeff[1]);
+    const __m128 mc2 = _mm_set1_ps(coeff[2]);
+    const float *srcp_m1 = src->c1;
+    for(i=iterline ; i-- ; ){ // second line
+        _mm_store_ps(dstp, _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc2, _mm_load_ps(srcp))), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2)))));
+        dstp+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
+    }
+    const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]);
+    const float *srcp_m2 = src->c1;
+    for(i=src->height-4 ; i-- ; ){ // others line
         int j;
-        for(j=iterline ; --j ; ){
-            *dstp = coeff[0]*(*srcp_m2) + coeff[1]*(*srcp_m1) + coeff[2]*(*srcp) + coeff[3]*(*srcp_p1) + coeff[4]*(*srcp_p2);
-            dstp+=1; srcp_m2+=1;srcp_m1+=1; srcp+=1; srcp_p1+=1; srcp_p2+=1;
+        for(j=iterline ; j-- ; ){
+            _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc2, _mm_load_ps(srcp))), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2))))));
+            dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
         }
-    }    
-    for(i=iterline ; --i ; ){ // second to last line
-        *dstp = coeff[0]*(*srcp_m2) + coeff[1]*(*srcp_m1) + coeff[2]*(*srcp) + (coeff[3]+coeff[4])*(*srcp_p1);
-        dstp+=1; srcp_m2+=1;srcp_m1+=1; srcp+=1; srcp_p1+=1;
-    }          
-    for(i=iterline ; --i ; ){ // last line
-        *dstp = coeff[0]*(*srcp_m2) + coeff[1]*(*srcp_m1) + (coeff[2]+coeff[3]+coeff[4])*(*srcp);
-        dstp+=1; srcp_m2+=1;srcp_m1+=1; srcp+=1; 
-    }  
+    }
+    mc012 = _mm_set1_ps(coeff[3]+coeff[4]);
+    for(i=iterline ; i-- ; ){ // second to last line
+        _mm_store_ps(dstp, _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_mul_ps(mc1, _mm_load_ps(srcp_m1))), _mm_add_ps(_mm_mul_ps(mc2, _mm_load_ps(srcp)), _mm_mul_ps(mc012, _mm_load_ps(srcp_p1)))));
+        dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP;
+    }
+    mc012 = _mm_set1_ps(coeff[2]+coeff[3]+coeff[4]);
+    for(i=iterline ; i-- ; ){ // last line
+        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc012, _mm_load_ps(srcp)))));
+        dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP;
+    }
+#undef STEP
 }
 
 static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convolution_t *conv){
+#define STEP 4
     const int stride_minus_1 = src->stride-1;
-    const int iterline = (src->stride>>2);
+    const int iterline = src->stride>>2;
     const float *coeff = conv->coeffs;
-    v4sf *srcp = (v4sf*) src->c1, *dstp = (v4sf*) dst->c1;
+    float *srcp = src->c1, *dstp = dst->c1;
     // create shifted version of src
     float *src_p1 = (float*) _aligned_malloc(sizeof(float)*src->stride*2, 16),
           *src_m1 = src_p1 + src->stride;
+    const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]);
     int j;
     for(j=0;j<src->height;j++){
         int i;
-        float *srcptr = (float*) srcp;
+        float *srcptr = srcp;
         const float right_coef = srcptr[src->width-1];
-        for(i=src->width;i<src->stride;i++)
+        for(i=src->width;i<src->stride;++i)
             srcptr[i] = right_coef;
         src_m1[0] = srcptr[0];
         memcpy(src_m1+1, srcptr , sizeof(float)*stride_minus_1);
         src_p1[stride_minus_1] = right_coef;
         memcpy(src_p1, srcptr+1, sizeof(float)*stride_minus_1);
-        v4sf *srcp_p1 = (v4sf*) src_p1, *srcp_m1 = (v4sf*) src_m1;
+        const float *srcp_p1 = src_p1, *srcp_m1 = src_m1;
         
         for(i=0;i<iterline;i++){
-            *dstp = coeff[0]*(*srcp_m1) + coeff[1]*(*srcp) + coeff[2]*(*srcp_p1);
-            dstp+=1; srcp_m1+=1; srcp+=1; srcp_p1+=1;
+            _mm_store_ps(dstp ,_mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m1)), _mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp)), _mm_mul_ps(mc2, _mm_load_ps(srcp_p1)))));
+            dstp+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP;
         }
     }
     _aligned_free(src_p1);
+#undef STEP
 }
 
 static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convolution_t *conv){
+#define STEP 4
     const int stride_minus_1 = src->stride-1;
     const int stride_minus_2 = src->stride-2;
-    const int iterline = (src->stride>>2);
+    const int iterline = src->stride>>2;
     const float *coeff = conv->coeffs;
-    v4sf *srcp = (v4sf*) src->c1, *dstp = (v4sf*) dst->c1;
+    float *srcp = src->c1, *dstp = dst->c1;
     float *src_p1 = (float*) _aligned_malloc(sizeof(float)*src->stride*4, 16),
           *src_p2 = src_p1+src->stride,
           *src_m1 = src_p2+src->stride,
           *src_m2 = src_m1+src->stride;
+    const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]), mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
     int j;
     for(j=0;j<src->height;j++){
         int i;
-        float *srcptr = (float*) srcp;
+        float *srcptr = srcp;
         const float right_coef = srcptr[src->width-1];
-        for(i=src->width;i<src->stride;i++)
+        for(i=src->width;i<src->stride;++i)
             srcptr[i] = right_coef;
         src_m1[0] = srcptr[0];
         memcpy(src_m1+1, srcptr , sizeof(float)*stride_minus_1);
-        src_m2[0] = srcptr[0];
-        src_m2[1] = srcptr[0];
+        src_m2[0] = src_m2[1] = srcptr[0];
         memcpy(src_m2+2, srcptr , sizeof(float)*stride_minus_2);
         src_p1[stride_minus_1] = right_coef;
         memcpy(src_p1, srcptr+1, sizeof(float)*stride_minus_1);
-        src_p2[stride_minus_1] = right_coef;
-        src_p2[stride_minus_2] = right_coef;
+        src_p2[stride_minus_1] = src_p2[stride_minus_2] = right_coef;
         memcpy(src_p2, srcptr+2, sizeof(float)*stride_minus_2);
                 
-        v4sf *srcp_p1 = (v4sf*) src_p1, *srcp_p2 = (v4sf*) src_p2, *srcp_m1 = (v4sf*) src_m1, *srcp_m2 = (v4sf*) src_m2;
+        float *srcp_p1 = src_p1, *srcp_p2 = src_p2, *srcp_m1 = src_m1, *srcp_m2 = src_m2;
         
         for(i=0;i<iterline;i++){
-            *dstp = coeff[0]*(*srcp_m2) + coeff[1]*(*srcp_m1) + coeff[2]*(*srcp) + coeff[3]*(*srcp_p1) + coeff[4]*(*srcp_p2);
-            dstp+=1; srcp_m2 +=1; srcp_m1+=1; srcp+=1; srcp_p1+=1; srcp_p2+=1;
+            _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc2, _mm_load_ps(srcp))), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2))))));
+            dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
         }
     }
     _aligned_free(src_p1);
+#undef STEP
 }
 
 /* perform an horizontal convolution of an image */
@@ -507,7 +525,7 @@ void convolve_horiz(image_t *dest, const image_t *src, const convolution_t *conv
         return;
     }else if(conv->order==2){
         convolve_horiz_fast_5(dest,src,conv);
-        return;    
+        return;
     }
     float *in = src->c1;
     float * out = dest->c1;
@@ -557,7 +575,7 @@ void convolve_vert(image_t *dest, const image_t *src, const convolution_t *conv)
         return;
     }else if(conv->order==2){
         convolve_vert_fast_5(dest,src,conv);
-        return;    
+        return;
     }
     float *in = src->c1;
     float *out = dest->c1;

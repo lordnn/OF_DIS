@@ -24,8 +24,8 @@ Is you use the variational refinement, please additionally cite:
   
 ## Compiling ##
 
-The program was only tested under a 64-bit Linux distribution.
-SSE instructions from built-in X86 functions for GNU GCC were used.
+The program was only tested under a 64-bit Windows distribution.
+SSE instructions from <xmmintrin.h> were used.
 
 The following will build four binaries: 
 Two for optical flow (`run_OF_*`) and two for depth from stereo (`run_DE_*`).
@@ -35,8 +35,8 @@ a slower variant operating on RGB images (`run_*_RGB`) is provided.
 ```
 mkdir build
 cd build
-cmake ../
-make -j
+cmake -G "MinGW Makefiles" ../ -DCMAKE_BUILD_TYPE=Release
+cmake --build . --parallel
 ```
 
 The code depends on Eigen3 and OpenCV. However, OpenCV is only used for image loading, 

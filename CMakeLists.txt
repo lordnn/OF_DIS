@@ -1,8 +1,13 @@
 cmake_minimum_required (VERSION 2.8) 
 project (FastPatchOF) 
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wno-unknown-pragmas -Wall -std=c++11 -msse4")  #-Wall
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -Wno-unknown-pragmas -Wall -msse4")  #-Wall
+if(MSVC)
+else(MSVC)
+    list(APPEND OptList -Wno-unknown-pragmas)
+endif(MSVC)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 ${OptList} -Wall -std=c++11 -msse4")  #-Wall
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 ${OptList} -Wall -msse4")  #-Wall
 
 FIND_PACKAGE(OpenCV REQUIRED)
 FIND_PACKAGE(Eigen3 REQUIRED) 

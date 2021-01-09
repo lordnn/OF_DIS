@@ -80,14 +80,14 @@ namespace OFC
       
   copyimage(im_ao_in, im_ao);
   copyimage(im_bo_in, im_bo);  
-  
+
   // Call solver
   #if (SELECTMODE==1)
   RefLevelOF(flow_sep[0], flow_sep[1], im_ao, im_bo);
   #else
   RefLevelDE(flow_sep[0], im_ao, im_bo);
   #endif  
-  
+
   // Copy flow result back
   for (int iy = 0; iy < cpt->height; ++iy)
     for (int ix = 0; ix < cpt->width; ++ix)
@@ -177,7 +177,7 @@ void VarRefClass::RefLevelOF(image_t *wx, image_t *wy, const color_image_t *im1,
         *Ix = color_image_new(width,height), *Iy = color_image_new(width,height), *Iz = color_image_new(width,height), // first order derivatives
         *Ixx = color_image_new(width,height), *Ixy = color_image_new(width,height), *Iyy = color_image_new(width,height), *Ixz = color_image_new(width,height), *Iyz = color_image_new(width,height); // second order derivatives
     #endif
-                
+
     // warp second image
     image_warp(w_im2, mask, im2, wx, wy);
     // compute derivatives
@@ -207,12 +207,18 @@ void VarRefClass::RefLevelOF(image_t *wx, image_t *wy, const color_image_t *im1,
         
         // update flow plus flow increment
         int i;
-        v4sf *uup = (v4sf*) uu->c1, *vvp = (v4sf*) vv->c1, *wxp = (v4sf*) wx->c1, *wyp = (v4sf*) wy->c1, *dup = (v4sf*) du->c1, *dvp = (v4sf*) dv->c1;
+        float *uup = uu->c1, *vvp = vv->c1, *wxp = wx->c1, *wyp = wy->c1, *dup = du->c1, *dvp = dv->c1;
         for( i=0 ; i<height*stride/4 ; i++)
         {
-          (*uup) = (*wxp) + (*dup);
-          (*vvp) = (*wyp) + (*dvp);
-          uup+=1; vvp+=1; wxp+=1; wyp+=1;dup+=1;dvp+=1;
+          __m128 mwxp = _mm_load_ps(wxp);
+          __m128 mdup = _mm_load_ps(dup);
+          __m128 muup = _mm_add_ps(mwxp, mdup);
+          __m128 mwyp = _mm_load_ps(wyp);
+          __m128 mdvp = _mm_load_ps(dvp);
+          __m128 mvvp = _mm_add_ps(mwyp, mdvp);
+          _mm_store_ps(uup, muup);
+          _mm_store_ps(vvp, mvvp);
+          uup+=4; vvp+=4; wxp+=4; wyp+=4;dup+=4;dvp+=4;
         }
         
     }
@@ -294,22 +300,24 @@ void VarRefClass::RefLevelDE(image_t *wx, const color_image_t *im1, const color_
           
           // update flow plus flow increment
           int i;
-          v4sf *uup = (v4sf*) uu->c1, *wxp = (v4sf*) wx->c1, *dup = (v4sf*) du->c1;
+          float *uup = uu->c1, *wxp = wx->c1, *dup = du->c1;
           
           if(cpt->camlr==0)  // check if right or left camera, needed to truncate values above/below zero
           {
             for( i=0 ; i<height*stride/4 ; i++)
             {
-                (*uup) = __builtin_ia32_minps(   (*wxp) + (*dup)   ,  op->zero);
-                uup+=1; wxp+=1; dup+=1;
+                _mm_store_ps(uup, _mm_min_ps(_mm_add_ps(_mm_load_ps(wxp), _mm_load_ps(dup)), op->zero));
+                //(*uup) = __builtin_ia32_minps(   (*wxp) + (*dup)   ,  op->zero);
+                uup+=4; wxp+=4; dup+=4;
             }
           }
           else
           {
             for( i=0 ; i<height*stride/4 ; i++)
             {
-                (*uup) = __builtin_ia32_maxps(   (*wxp) + (*dup)   ,  op->zero);
-                uup+=1; wxp+=1; dup+=1;
+                _mm_store_ps(uup, _mm_max_ps(_mm_add_ps(_mm_load_ps(wxp), _mm_load_ps(dup)), op->zero));
+                //(*uup) = __builtin_ia32_maxps(   (*wxp) + (*dup)   ,  op->zero);
+                uup+=4; wxp+=4; dup+=4;
             }
           }
       }

@@ -10,7 +10,7 @@
 #include <Eigen/LU>
 #include <Eigen/Dense>
 
-#include <stdio.h>  
+#include <stdio.h>
 
 #include "patch.h"
 
@@ -21,8 +21,6 @@ using std::vector;
 namespace OFC
 {
   
-  typedef __v4sf v4sf;
-
   PatClass::PatClass(
     const camparam* cpt_in,
     const camparam* cpo_in,
@@ -222,41 +220,47 @@ inline void PatClass::paramtopt()
 
 void PatClass::LossComputeErrorImage(Eigen::Matrix<float, Eigen::Dynamic, 1>* patdest, Eigen::Matrix<float, Eigen::Dynamic, 1>* wdest, const Eigen::Matrix<float, Eigen::Dynamic, 1>* patin,  const Eigen::Matrix<float, Eigen::Dynamic, 1>*  tmpin)
 {
-  v4sf * pd = (v4sf*) patdest->data(),
-       * pa = (v4sf*) patin->data(),  
-       * te = (v4sf*) tmpin->data(),
-       * pw = (v4sf*) wdest->data();
+  const float *pa = patin->data(),  
+              *te = tmpin->data();
+  float *pd = patdest->data(),
+        *pw = wdest->data();
 
   if (op->costfct==0) // L2 cost function
   {
-    for (int i=op->novals/4; i--; ++pd, ++pa, ++te, ++pw)
+    for (int i = op->novals / 4; i--; pd += 4, pa += 4, te += 4, pw += 4)
     {
-      (*pd) = (*pa)-(*te);  // difference image
-      (*pw) = __builtin_ia32_andnps(op->negzero,  (*pd) );
+      __m128 mpa = _mm_load_ps(pd);
+      __m128 mte = _mm_load_ps(te);
+      __m128 mpd = _mm_sub_ps(mpa, mte); // difference image
+      __m128 mpw = _mm_andnot_ps(op->negzero, mpd);
+      _mm_store_ps(pd, mpd);
+      _mm_store_ps(pw, mpw);
     }
   }
   else if (op->costfct==1) // L1 cost function
   {
-    for (int i=op->novals/4; i--; ++pd, ++pa, ++te, ++pw)
+    for (int i = op->novals / 4; i--; pd += 4, pa += 4, te += 4, pw += 4)
     {
-      (*pd) = (*pa)-(*te);   // difference image
-      (*pd) = __builtin_ia32_orps( __builtin_ia32_andps(op->negzero,  (*pd) )  , __builtin_ia32_sqrtps (__builtin_ia32_andnps(op->negzero,  (*pd) )) );  // sign(pdiff) * sqrt(abs(pdiff))
-      (*pw) = __builtin_ia32_andnps(op->negzero,  (*pd) );
+      __m128 mpa = _mm_load_ps(pa);
+      __m128 mte = _mm_load_ps(te);
+      __m128 mpd = _mm_sub_ps(mpa, mte);   // difference image
+      mpd = _mm_or_ps(_mm_and_ps(op->negzero, mpd), _mm_sqrt_ps(_mm_andnot_ps(op->negzero, mpd)));  // sign(pdiff) * sqrt(abs(pdiff))
+      __m128 mpw = _mm_andnot_ps(op->negzero, mpd);
+      _mm_store_ps(pd, mpd);
+      _mm_store_ps(pw, mpw);
     }
   }
   else if (op->costfct==2) // Pseudo Huber cost function
   {
-    for (int i=op->novals/4; i--; ++pd, ++pa, ++te, ++pw)
+    for (int i=op->novals/4; i--; pd += 4, pa += 4, te += 4, pw += 4)
     {
-      (*pd) = (*pa)-(*te);   // difference image
-      (*pd) = __builtin_ia32_orps(__builtin_ia32_andps(op->negzero,  (*pd) ), 
-                                  __builtin_ia32_sqrtps (
-                                    __builtin_ia32_mulps(                                                                                         // PSEUDO HUBER NORM
-                                          __builtin_ia32_sqrtps (op->ones + __builtin_ia32_divps(__builtin_ia32_mulps((*pd),(*pd)) , op->normoutlier_tmpbsq)) - op->ones, // PSEUDO HUBER NORM 
-                                          op->normoutlier_tmp2bsq)                                                                                                // PSEUDO HUBER NORM
-                                     )
-                                    ); // sign(pdiff) * sqrt( 2*b^2*( sqrt(1+abs(pdiff)^2/b^2)+1)  )) // <- looks like this without SSE instruction
-      (*pw) = __builtin_ia32_andnps(op->negzero,  (*pd) );                                    
+      __m128 mpa = _mm_load_ps(pd);
+      __m128 mte = _mm_load_ps(te);
+      __m128 mpd = _mm_sub_ps(mpa, mte);   // difference image
+      mpd = _mm_or_ps(_mm_and_ps(op->negzero, mpd), _mm_sqrt_ps(_mm_mul_ps(_mm_sub_ps(_mm_sqrt_ps(_mm_add_ps(op->ones, _mm_div_ps(_mm_mul_ps(mpd, mpd), op->normoutlier_tmpbsq))), op->ones), op->normoutlier_tmp2bsq)));  // sign(pdiff) * sqrt( 2*b^2*( sqrt(1+abs(pdiff)^2/b^2)+1)  )) // <- looks like this without SSE instruction
+      __m128 mpw = _mm_andnot_ps(op->negzero, mpd);
+      _mm_store_ps(pd, mpd);
+      _mm_store_ps(pw, mpw);
     }
   }
 }

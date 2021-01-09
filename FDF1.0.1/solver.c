@@ -10,7 +10,6 @@
 #include "solver.h"
 
 #include <xmmintrin.h>
-typedef __v4sf v4sf;
 
 //THIS IS A SLOW VERSION BUT READABLE
 //Perform n iterations of the sor_coupled algorithm
@@ -85,7 +84,7 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
     const int stride = du->stride, width = du->width;
     const int iterheight = du->height-1, iterline = (stride)/4, width_minus_1_sizeoffloat = sizeof(float)*(width-1);
     int j,iter,i,k;
-    float *floatarray = (float*) _aligned_malloc(stride*sizeof(float)*3, 16); 
+    float *floatarray = (float*) _aligned_malloc(stride*sizeof(float)*3, 16);
     if(floatarray==NULL){
         fprintf(stderr, "error in sor_coupled(): not enough memory\n");
         exit(1);
@@ -97,320 +96,337 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
     memset(&f1[width], 0, sizeof(float)*(stride-width));
     memset(&f2[width-1], 0, sizeof(float)*(stride-width+1));
     memset(&f3[width-1], 0, sizeof(float)*(stride-width+1));
+    const __m128 mzero = _mm_set_ps1(0.f);
 
     { // first iteration
-        v4sf *a11p = (v4sf*) a11->c1, *a12p = (v4sf*) a12->c1, *a22p = (v4sf*) a22->c1, *b1p = (v4sf*) b1->c1, *b2p = (v4sf*) b2->c1, *hp = (v4sf*) dpsis_horiz->c1, *vp = (v4sf*) dpsis_vert->c1;
+        float *a11p = a11->c1, *a12p = a12->c1, *a22p = a22->c1, *b1p = b1->c1, *b2p = b2->c1, *hp = dpsis_horiz->c1, *vp = dpsis_vert->c1;
         float *du_ptr = du->c1, *dv_ptr = dv->c1;
-        v4sf *dub = (v4sf*) (du_ptr+stride), *dvb = (v4sf*) (dv_ptr+stride);
+        float *dub = du_ptr+stride, *dvb = dv_ptr+stride;
 
         { // first iteration - first line
 
             memcpy(f1+1, ((float*) hp), width_minus_1_sizeoffloat);
             memcpy(f2, du_ptr+1, width_minus_1_sizeoffloat);
             memcpy(f3, dv_ptr+1, width_minus_1_sizeoffloat);
-            v4sf* hpl = (v4sf*) f1, *dur = (v4sf*) f2, *dvr = (v4sf*) f3;
+            float *hpl = f1, *dur = f2, *dvr = f3;
 
             { // left block
                 // reverse 2x2 diagonal block
-                const v4sf dpsis = (*hpl) + (*hp) + (*vp);
-                const v4sf A11 = (*a22p)+dpsis, A22 = (*a11p)+dpsis;
-                const v4sf det = A11*A22 - (*a12p)*(*a12p);
-                *a11p = A11/det;
-                *a22p = A22/det;
-                *a12p /= -det;
+                const __m128 dpsis = _mm_add_ps(_mm_load_ps(hpl), _mm_add_ps(_mm_load_ps(hp), _mm_load_ps(vp)));
+                const __m128 A11 = _mm_add_ps(_mm_load_ps(a22p), dpsis), A22 = _mm_add_ps(_mm_load_ps(a11p), dpsis);
+                const __m128 ma12p = _mm_load_ps(a12p);
+                const __m128 det = _mm_sub_ps(_mm_mul_ps(A11, A22), _mm_mul_ps(ma12p, ma12p));
+                _mm_store_ps(a11p, _mm_div_ps(A11, det));
+                _mm_store_ps(a22p, _mm_div_ps(A22, det));
+                _mm_store_ps(a12p,  _mm_div_ps(ma12p, _mm_sub_ps(mzero, det)));
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vp)*(*dvb) + (*b2p);
-                du_ptr[0] += omega*( a11p[0][0]*s1[0] + a12p[0][0]*s2[0] - du_ptr[0] );
-                dv_ptr[0] += omega*( a12p[0][0]*s1[0] + a22p[0][0]*s2[0] - dv_ptr[0] );
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
+
+                du_ptr[0] += omega*( a11p[0]*s1[0] + a12p[0]*s2[0] - du_ptr[0] );
+                dv_ptr[0] += omega*( a12p[0]*s1[0] + a22p[0]*s2[0] - dv_ptr[0] );
                 for(k=1;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
-                du_ptr += 4; dv_ptr += 4;
+                hpl+=4; hp+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
+                du_ptr += 4; dv_ptr += 4;        
             }
             for(i=iterline;--i;){
                 // reverse 2x2 diagonal block
-                const v4sf dpsis = (*hpl) + (*hp) + (*vp);
-                const v4sf A11 = (*a22p)+dpsis, A22 = (*a11p)+dpsis;
-                const v4sf det = A11*A22 - (*a12p)*(*a12p);
-                *a11p = A11/det;
-                *a22p = A22/det;
-                *a12p /= -det;
+                const __m128 dpsis = _mm_add_ps(_mm_load_ps(hpl), _mm_add_ps(_mm_load_ps(hp), _mm_load_ps(vp)));
+                const __m128 A11 = _mm_add_ps(_mm_load_ps(a22p), dpsis), A22 = _mm_add_ps(_mm_load_ps(a11p), dpsis);
+                const __m128 ma12p = _mm_load_ps(a12p);
+                const __m128 det = _mm_sub_ps(_mm_mul_ps(A11, A22), _mm_mul_ps(ma12p, ma12p));
+                _mm_store_ps(a11p, _mm_div_ps(A11, det));
+                _mm_store_ps(a22p, _mm_div_ps(A22, det));
+                _mm_store_ps(a12p, _mm_div_ps(ma12p, _mm_sub_ps(mzero, det)));
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vp)*(*dvb) + (*b2p);
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
                 for(k=0;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-
+          
         }
 
-        v4sf *vpt = (v4sf*) dpsis_vert->c1;
-        v4sf *dut = (v4sf*) du->c1, *dvt = (v4sf*) dv->c1;
+        float *vpt = dpsis_vert->c1;
+        float *dut = du->c1, *dvt = dv->c1;
 
         for(j=iterheight;--j;){ // first iteration - middle lines
             memcpy(f1+1, ((float*) hp), width_minus_1_sizeoffloat);
             memcpy(f2, du_ptr+1, width_minus_1_sizeoffloat);
             memcpy(f3, dv_ptr+1, width_minus_1_sizeoffloat);
-            v4sf* hpl = (v4sf*) f1, *dur = (v4sf*) f2, *dvr = (v4sf*) f3;
+            float *hpl = f1, *dur = f2, *dvr = f3;
 
             { // left block
                 // reverse 2x2 diagonal block
-                const v4sf dpsis = (*hpl) + (*hp) + (*vpt) + (*vp);
-                const v4sf A11 = (*a22p)+dpsis, A22 = (*a11p)+dpsis;
-                const v4sf det = A11*A22 - (*a12p)*(*a12p);
-                *a11p = A11/det;
-                *a22p = A22/det;
-                *a12p /= -det;
+                const __m128 dpsis = _mm_add_ps(_mm_add_ps(_mm_load_ps(hpl), _mm_load_ps(hp)), _mm_add_ps(_mm_load_ps(vpt), _mm_load_ps(vp)));
+                const __m128 A11 = _mm_add_ps(_mm_load_ps(a22p), dpsis), A22 = _mm_add_ps(_mm_load_ps(a11p), dpsis);
+                const __m128 ma12p = _mm_load_ps(a12p);
+                const __m128 det = _mm_sub_ps(_mm_mul_ps(A11, A22), _mm_mul_ps(ma12p, ma12p));
+                _mm_store_ps(a11p, _mm_div_ps(A11, det));
+                _mm_store_ps(a22p, _mm_div_ps(A22, det));
+                _mm_store_ps(a12p, _mm_div_ps(ma12p, _mm_sub_ps(mzero, det)));
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*vp)*(*dvb) + (*b2p);
-                du_ptr[0] += omega*( a11p[0][0]*s1[0] + a12p[0][0]*s2[0] - du_ptr[0] );
-                dv_ptr[0] += omega*( a12p[0][0]*s1[0] + a22p[0][0]*s2[0] - dv_ptr[0] );
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
+                du_ptr[0] += omega*( a11p[0]*s1[0] + a12p[0]*s2[0] - du_ptr[0] );
+                dv_ptr[0] += omega*( a12p[0]*s1[0] + a22p[0]*s2[0] - dv_ptr[0] );
                 for(k=1;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
             for(i=iterline;--i;){
                 // reverse 2x2 diagonal block
-                const v4sf dpsis = (*hpl) + (*hp) + (*vpt) + (*vp);
-                const v4sf A11 = (*a22p)+dpsis, A22 = (*a11p)+dpsis;
-                const v4sf det = A11*A22 - (*a12p)*(*a12p);
-                *a11p = A11/det;
-                *a22p = A22/det;
-                *a12p /= -det;
+                const __m128 dpsis = _mm_add_ps(_mm_add_ps(_mm_load_ps(hpl), _mm_load_ps(hp)), _mm_add_ps(_mm_load_ps(vpt), _mm_load_ps(vp)));
+                const __m128 A11 = _mm_add_ps(_mm_load_ps(a22p), dpsis), A22 = _mm_add_ps(_mm_load_ps(a11p), dpsis);
+                const __m128 ma12p = _mm_load_ps(a12p);
+                const __m128 det = _mm_sub_ps(_mm_mul_ps(A11, A22), _mm_mul_ps(ma12p, ma12p));
+                _mm_store_ps(a11p, _mm_div_ps(A11, det));
+                _mm_store_ps(a22p, _mm_div_ps(A22, det));
+                _mm_store_ps(a12p, _mm_div_ps(ma12p, _mm_sub_ps(mzero, det)));
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*vp)*(*dvb) + (*b2p);
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
                 for(k=0;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-                
+
         }
-        
+
         { // first iteration - last line
-            memcpy(f1+1, ((float*) hp), width_minus_1_sizeoffloat);   
+            memcpy(f1+1, ((float*) hp), width_minus_1_sizeoffloat);
             memcpy(f2, du_ptr+1, width_minus_1_sizeoffloat);
             memcpy(f3, dv_ptr+1, width_minus_1_sizeoffloat);
-            v4sf* hpl = (v4sf*) f1, *dur = (v4sf*) f2, *dvr = (v4sf*) f3;
+            float *hpl = f1, *dur = f2, *dvr = f3;
 
             { // left block
                 // reverse 2x2 diagonal block
-                const v4sf dpsis = (*hpl) + (*hp) + (*vpt);
-                const v4sf A11 = (*a22p)+dpsis, A22 = (*a11p)+dpsis;
-                const v4sf det = A11*A22 - (*a12p)*(*a12p);
-                *a11p = A11/det;
-                *a22p = A22/det;
-                *a12p /= -det;
+                const __m128 dpsis = _mm_add_ps(_mm_load_ps(hpl), _mm_add_ps(_mm_load_ps(hp), _mm_load_ps(vpt)));
+                const __m128 A11 = _mm_add_ps(_mm_load_ps(a22p), dpsis), A22 = _mm_add_ps(_mm_load_ps(a11p), dpsis);
+                const __m128 ma12p = _mm_load_ps(a12p);
+                const __m128 det = _mm_sub_ps(_mm_mul_ps(A11, A22), _mm_mul_ps(ma12p, ma12p));
+                _mm_store_ps(a11p, _mm_div_ps(A11, det));
+                _mm_store_ps(a22p, _mm_div_ps(A22, det));
+                _mm_store_ps(a12p, _mm_div_ps(ma12p, _mm_sub_ps(mzero, det)));
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*b2p);
-                du_ptr[0] += omega*( a11p[0][0]*s1[0] + a12p[0][0]*s2[0] - du_ptr[0] );
-                dv_ptr[0] += omega*( a12p[0][0]*s1[0] + a22p[0][0]*s2[0] - dv_ptr[0] );
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt)), _mm_load_ps(b2p))));
+                du_ptr[0] += omega*( a11p[0]*s1[0] + a12p[0]*s2[0] - du_ptr[0] );
+                dv_ptr[0] += omega*( a12p[0]*s1[0] + a22p[0]*s2[0] - dv_ptr[0] );
                 for(k=1;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
             for(i=iterline;--i;){
                 // reverse 2x2 diagonal block
-                const v4sf dpsis = (*hpl) + (*hp) + (*vpt);
-                const v4sf A11 = (*a22p)+dpsis, A22 = (*a11p)+dpsis;
-                const v4sf det = A11*A22 - (*a12p)*(*a12p);
-                *a11p = A11/det;
-                *a22p = A22/det;
-                *a12p /= -det;
+                const __m128 dpsis = _mm_add_ps(_mm_load_ps(hpl), _mm_add_ps(_mm_load_ps(hp), _mm_load_ps(vpt)));
+                const __m128 A11 = _mm_add_ps(_mm_load_ps(a22p), dpsis), A22 = _mm_add_ps(_mm_load_ps(a11p), dpsis);
+                const __m128 ma12p = _mm_load_ps(a12p);
+                const __m128 det = _mm_sub_ps(_mm_mul_ps(A11, A22), _mm_mul_ps(ma12p, ma12p));
+                _mm_store_ps(a11p, _mm_div_ps(A11, det));
+                _mm_store_ps(a22p, _mm_div_ps(A22, det));
+                _mm_store_ps(a12p, _mm_div_ps(ma12p, _mm_sub_ps(mzero, det)));
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*b2p);
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt)), _mm_load_ps(b2p))));
                 for(k=0;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
 
         }
     }
 
-    
+
 
    for(iter=iterations;--iter;)   // other iterations
    {
-        v4sf *a11p = (v4sf*) a11->c1, *a12p = (v4sf*) a12->c1, *a22p = (v4sf*) a22->c1, *b1p = (v4sf*) b1->c1, *b2p = (v4sf*) b2->c1, *hp = (v4sf*) dpsis_horiz->c1, *vp = (v4sf*) dpsis_vert->c1;
+        float *a11p = a11->c1, *a12p = a12->c1, *a22p = a22->c1, *b1p = b1->c1, *b2p = b2->c1, *hp = dpsis_horiz->c1, *vp = dpsis_vert->c1;
         float *du_ptr = du->c1, *dv_ptr = dv->c1;
-        v4sf *dub = (v4sf*) (du_ptr+stride), *dvb = (v4sf*) (dv_ptr+stride);
-        
+        float *dub = du_ptr+stride, *dvb = dv_ptr+stride;
+
         { // other iteration - first line
-        
+
             memcpy(f1+1, ((float*) hp), width_minus_1_sizeoffloat);
             memcpy(f2, du_ptr+1, width_minus_1_sizeoffloat);
             memcpy(f3, dv_ptr+1, width_minus_1_sizeoffloat);
-            v4sf* hpl = (v4sf*) f1, *dur = (v4sf*) f2, *dvr = (v4sf*) f3;
+            float *hpl = f1, *dur = f2, *dvr = f3;
 
             { // left block
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vp)*(*dvb) + (*b2p);
-                du_ptr[0] += omega*( a11p[0][0]*s1[0] + a12p[0][0]*s2[0] - du_ptr[0] );
-                dv_ptr[0] += omega*( a12p[0][0]*s1[0] + a22p[0][0]*s2[0] - dv_ptr[0] );
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
+                du_ptr[0] += omega*( a11p[0]*s1[0] + a12p[0]*s2[0] - du_ptr[0] );
+                dv_ptr[0] += omega*( a12p[0]*s1[0] + a22p[0]*s2[0] - dv_ptr[0] );
                 for(k=1;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
             for(i=iterline;--i;){
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vp)*(*dvb) + (*b2p);
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
                 for(k=0;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-          
+
         }
 
-        v4sf *vpt = (v4sf*) dpsis_vert->c1;
-        v4sf *dut = (v4sf*) du->c1, *dvt = (v4sf*) dv->c1;
+        float *vpt = dpsis_vert->c1;
+        float *dut = du->c1, *dvt = dv->c1;
 
         for(j=iterheight;--j;)  // other iteration - middle lines
         {
             memcpy(f1+1, ((float*) hp), width_minus_1_sizeoffloat);
             memcpy(f2, du_ptr+1, width_minus_1_sizeoffloat);
             memcpy(f3, dv_ptr+1, width_minus_1_sizeoffloat);
-            v4sf* hpl = (v4sf*) f1, *dur = (v4sf*) f2, *dvr = (v4sf*) f3;
-                 
+            float *hpl = f1, *dur = f2, *dvr = f3;
+
             { // left block
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*vp)*(*dvb) + (*b2p);
-                du_ptr[0] += omega*( a11p[0][0]*s1[0] + a12p[0][0]*s2[0] - du_ptr[0] );
-                dv_ptr[0] += omega*( a12p[0][0]*s1[0] + a22p[0][0]*s2[0] - dv_ptr[0] );
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
+                du_ptr[0] += omega*( a11p[0]*s1[0] + a12p[0]*s2[0] - du_ptr[0] );
+                dv_ptr[0] += omega*( a12p[0]*s1[0] + a22p[0]*s2[0] - dv_ptr[0] );
                 for(k=1;k<4;k++)
                 {
-                  const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                  const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                  du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                  dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-            
             for(i=iterline; --i;)
             {
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*vp)*(*dub) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*vp)*(*dvb) + (*b2p);
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dub)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt))), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vp), _mm_load_ps(dvb)), _mm_load_ps(b2p))));
                 for(k=0;k<4;k++)
                 {
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                  dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; vp+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; dub+=1; dvb +=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; vp+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-
         }
 
         { // other iteration - last line
             memcpy(f1+1, ((float*) hp), width_minus_1_sizeoffloat);
             memcpy(f2, du_ptr+1, width_minus_1_sizeoffloat);
             memcpy(f3, dv_ptr+1, width_minus_1_sizeoffloat);
-            v4sf* hpl = (v4sf*) f1, *dur = (v4sf*) f2, *dvr = (v4sf*) f3;
+            float *hpl = f1, *dur = f2, *dvr = f3;
 
             { // left block
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*b2p);
-                du_ptr[0] += omega*( a11p[0][0]*s1[0] + a12p[0][0]*s2[0] - du_ptr[0] );
-                dv_ptr[0] += omega*( a12p[0][0]*s1[0] + a22p[0][0]*s2[0] - dv_ptr[0] );
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt)), _mm_load_ps(b2p))));
+                du_ptr[0] += omega*( a11p[0]*s1[0] + a12p[0]*s2[0] - du_ptr[0] );
+                dv_ptr[0] += omega*( a12p[0]*s1[0] + a22p[0]*s2[0] - dv_ptr[0] );
                 for(k=1;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
             for(i=iterline;--i;){
                 // do one iteration
-                const v4sf s1 = (*hp)*(*dur) + (*vpt)*(*dut) + (*b1p);
-                const v4sf s2 = (*hp)*(*dvr) + (*vpt)*(*dvt) + (*b2p);
+                float s1[4], s2[4];
+                _mm_storeu_ps(s1, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dur)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dut)), _mm_load_ps(b1p))));
+                _mm_storeu_ps(s2, _mm_add_ps(_mm_mul_ps(_mm_load_ps(hp), _mm_load_ps(dvr)), _mm_add_ps(_mm_mul_ps(_mm_load_ps(vpt), _mm_load_ps(dvt)), _mm_load_ps(b2p))));
                 for(k=0;k<4;k++){
-                    const float B1 = hpl[0][k]*du_ptr[k-1] + s1[k];
-                    const float B2 = hpl[0][k]*dv_ptr[k-1] + s2[k];
-                    du_ptr[k] += omega*( a11p[0][k]*B1 + a12p[0][k]*B2 - du_ptr[k] );
-                    dv_ptr[k] += omega*( a12p[0][k]*B1 + a22p[0][k]*B2 - dv_ptr[k] );
+                    const float B1 = hpl[k]*du_ptr[k-1] + s1[k];
+                    const float B2 = hpl[k]*dv_ptr[k-1] + s2[k];
+                    du_ptr[k] += omega*( a11p[k]*B1 + a12p[k]*B2 - du_ptr[k] );
+                    dv_ptr[k] += omega*( a12p[k]*B1 + a22p[k]*B2 - dv_ptr[k] );
                 }
                 // increment pointer
-                hpl+=1; hp+=1; vpt+=1; a11p+=1; a12p+=1; a22p+=1;
-                dur+=1; dvr+=1; dut+=1; dvt+=1; b1p+=1; b2p+=1;
+                hpl+=4; hp+=4; vpt+=4; a11p+=4; a12p+=4; a22p+=4;
+                dur+=4; dvr+=4; dut+=4; dvt+=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-
         }
     }
 

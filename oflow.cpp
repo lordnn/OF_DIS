@@ -103,9 +103,9 @@ namespace OFC
   op.tv_innerit = tv_innerit_in;
   op.tv_solverit = tv_solverit_in;
   op.tv_sor = tv_sor_in;
-  op.normoutlier_tmpbsq = (v4sf) {op.normoutlier*op.normoutlier, op.normoutlier*op.normoutlier, op.normoutlier*op.normoutlier, op.normoutlier*op.normoutlier};
-  op.normoutlier_tmp2bsq = __builtin_ia32_mulps(op.normoutlier_tmpbsq, op.twos);
-  op.normoutlier_tmp4bsq = __builtin_ia32_mulps(op.normoutlier_tmpbsq, op.fours);
+  op.normoutlier_tmpbsq = _mm_set_ps1(op.normoutlier * op.normoutlier);
+  op.normoutlier_tmp2bsq = _mm_mul_ps(op.normoutlier_tmpbsq, op.twos);
+  op.normoutlier_tmp4bsq = _mm_mul_ps(op.normoutlier_tmpbsq, op.fours);
 
   
   // Variables for algorithm timings
@@ -228,7 +228,7 @@ namespace OFC
       gettimeofday(&tv_start_all, nullptr);
     }      
     
-    
+
     // Dense Inverse Search. (Step 3 in Algorithm 1 of paper)                                          
     grid_fw[ii]->Optimize();
     if (op.usefbcon)
@@ -258,7 +258,7 @@ namespace OFC
       gettimeofday(&tv_start_all, nullptr);
     }
 
-                                                              
+
     // Densification. (Step 4 in Algorithm 1 of paper)                                                                    
     float *tmp_ptr = flow_fw[ii];
     if (sl == op.sc_l)
@@ -269,7 +269,7 @@ namespace OFC
     if (op.usefbcon && sl > op.sc_l )  // skip at last scale, backward flow no longer needed
       grid_bw[ii]->AggregateFlowDense(flow_bw[ii]);
       
-    
+
     // Timing, Densification
     if (op.verbosity>1)
     {    
@@ -293,7 +293,7 @@ namespace OFC
                                     im_ao[sl], im_ao_dx[sl], im_ao_dy[sl]
                                     ,&(cpr[ii]), &(cpl[ii]), &op, flow_bw[ii]);
     }
-    
+
     // Timing, Variational Refinement
     if (op.verbosity>1)
     {        
@@ -335,7 +335,7 @@ namespace OFC
 //     }
                                                               
   }
-  
+
   // Clean up
   for (int sl=op.sc_f; sl>=op.sc_l; --sl) 
   {                                        

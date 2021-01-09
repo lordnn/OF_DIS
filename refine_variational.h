@@ -10,8 +10,6 @@
 namespace OFC
 {
 
-typedef __v4sf v4sf;
-
 typedef struct
 {
   float alpha;             // smoothness weight

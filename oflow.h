@@ -10,9 +10,6 @@ using std::endl;
 namespace OFC
 {
 
-typedef __v4sf v4sf;
-  
-
 typedef struct 
 {
   int width;                // image width, does not include '2*imgpadding', but includes original padding to ensure integer divisible image width and height
@@ -63,15 +60,15 @@ typedef struct
   float normoutlier = 5.0f;     // norm error threshold for huber norm
   
   // Helper variables
-  v4sf zero     = (v4sf) {0.0f, 0.0f, 0.0f, 0.0f};
-  v4sf negzero  = (v4sf) {-0.0f, -0.0f, -0.0f, -0.0f};
-  v4sf half     = (v4sf) {0.5f, 0.5f, 0.5f, 0.5f};
-  v4sf ones     = (v4sf) {1.0f, 1.0f, 1.0f, 1.0f};
-  v4sf twos     = (v4sf) {2.0f, 2.0f, 2.0f, 2.0f};
-  v4sf fours    = (v4sf) {4.0f, 4.0f, 4.0f, 4.0f};  
-  v4sf normoutlier_tmpbsq;   
-  v4sf normoutlier_tmp2bsq;  
-  v4sf normoutlier_tmp4bsq;  
+  __m128 zero     = _mm_set_ps1(0.0f);
+  __m128 negzero  = _mm_set_ps1(-0.0f);
+  __m128 half     = _mm_set_ps1(0.5f);
+  __m128 ones     = _mm_set_ps1(1.0f);
+  __m128 twos     = _mm_set_ps1(2.0f);
+  __m128 fours    = _mm_set_ps1(4.0f);
+  __m128 normoutlier_tmpbsq;
+  __m128 normoutlier_tmp2bsq;
+  __m128 normoutlier_tmp4bsq;
   
 } optparam;
 
