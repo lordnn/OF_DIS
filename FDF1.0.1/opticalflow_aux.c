@@ -27,8 +27,8 @@ void image_warp(color_image_t *dst, image_t *mask, const color_image_t *src, con
         {
             xx = i+wx->c1[offset];
             yy = j+wy->c1[offset];
-            x = floor(xx);
-            y = floor(yy);
+            x = (int)floor(xx);
+            y = (int)floor(yy);
             dx = xx-x;
             dy = yy-y;
             mask->c1[offset] = (xx>=0 && xx<=src->width-1 && yy>=0 && yy<=src->height-1);

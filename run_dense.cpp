@@ -31,9 +31,9 @@ void SaveFlowFile(cv::Mat& img, const char* filename)
       (int)fwrite(&height, sizeof(int),   1, stream) != 1)
     cout << "WriteFile: problem writing header" << endl;
 
-  for (int y = 0; y < height; y++) 
+  for (int y = 0; y < height; y++)
   {
-    for (int x = 0; x < width; x++) 
+    for (int x = 0; x < width; x++)
     {
       if (nc==1) // depth
         tmp[0] = img.at<float>(y,x);
@@ -87,11 +87,11 @@ void ReadFlowFile(cv::Mat& img, const char* filename)
   FILE *stream = fopen(filename, "rb");
   if (stream == 0)
     cout << "ReadFile: could not open %s" << endl;
-  
+
   int width, height;
   float tag;
   int nc = img.channels();
-  float tmp[nc];  
+  std::vector<float> tmp(nc);
 
   if ((int)fread(&tag,    sizeof(float), 1, stream) != 1 ||
       (int)fread(&width,  sizeof(int),   1, stream) != 1 ||
@@ -102,7 +102,7 @@ void ReadFlowFile(cv::Mat& img, const char* filename)
   {
     for (int x = 0; x < width; x++) 
     {
-      if ((int)fread(tmp, sizeof(float), nc, stream) != nc)
+      if ((int)fread(tmp.data(), sizeof(float), nc, stream) != nc)
         cout << "ReadFile(%s): file is too short" << endl;
 
       if (nc==1) // depth
@@ -187,9 +187,9 @@ int main( int argc, char** argv )
 {
   std::chrono::time_point<std::chrono::steady_clock> tv_start_all, tv_end_all;
   tv_start_all = std::chrono::steady_clock::now();
-  
-  
-  
+
+
+
   // *** Parse and load input images
   char *imgfile_ao = argv[1];
   char *imgfile_bo = argv[2];
@@ -327,22 +327,22 @@ int main( int argc, char** argv )
   img_ao_mat.convertTo(img_ao_fmat, CV_32F); // convert to float
   img_bo_mat.convertTo(img_bo_fmat, CV_32F);
   
-  const float* img_ao_pyr[lv_f+1];
-  const float* img_bo_pyr[lv_f+1];
-  const float* img_ao_dx_pyr[lv_f+1];
-  const float* img_ao_dy_pyr[lv_f+1];
-  const float* img_bo_dx_pyr[lv_f+1];
-  const float* img_bo_dy_pyr[lv_f+1];
+  std::vector<const float*> img_ao_pyr(lv_f+1);
+  std::vector<const float*> img_bo_pyr(lv_f+1);
+  std::vector<const float*> img_ao_dx_pyr(lv_f+1);
+  std::vector<const float*> img_ao_dy_pyr(lv_f+1);
+  std::vector<const float*> img_bo_dx_pyr(lv_f+1);
+  std::vector<const float*> img_bo_dy_pyr(lv_f+1);
 
-  cv::Mat img_ao_fmat_pyr[lv_f+1];
-  cv::Mat img_bo_fmat_pyr[lv_f+1];
-  cv::Mat img_ao_dx_fmat_pyr[lv_f+1];
-  cv::Mat img_ao_dy_fmat_pyr[lv_f+1];
-  cv::Mat img_bo_dx_fmat_pyr[lv_f+1];
-  cv::Mat img_bo_dy_fmat_pyr[lv_f+1];
+  std::vector<cv::Mat> img_ao_fmat_pyr(lv_f+1);
+  std::vector<cv::Mat> img_bo_fmat_pyr(lv_f+1);
+  std::vector<cv::Mat> img_ao_dx_fmat_pyr(lv_f+1);
+  std::vector<cv::Mat> img_ao_dy_fmat_pyr(lv_f+1);
+  std::vector<cv::Mat> img_bo_dx_fmat_pyr(lv_f+1);
+  std::vector<cv::Mat> img_bo_dy_fmat_pyr(lv_f+1);
 
-  ConstructImgPyramide(img_ao_fmat, img_ao_fmat_pyr, img_ao_dx_fmat_pyr, img_ao_dy_fmat_pyr, img_ao_pyr, img_ao_dx_pyr, img_ao_dy_pyr, lv_f, lv_l, rpyrtype, 1, patchsz, padw, padh);
-  ConstructImgPyramide(img_bo_fmat, img_bo_fmat_pyr, img_bo_dx_fmat_pyr, img_bo_dy_fmat_pyr, img_bo_pyr, img_bo_dx_pyr, img_bo_dy_pyr, lv_f, lv_l, rpyrtype, 1, patchsz, padw, padh);
+  ConstructImgPyramide(img_ao_fmat, img_ao_fmat_pyr.data(), img_ao_dx_fmat_pyr.data(), img_ao_dy_fmat_pyr.data(), img_ao_pyr.data(), img_ao_dx_pyr.data(), img_ao_dy_pyr.data(), lv_f, lv_l, rpyrtype, 1, patchsz, padw, padh);
+  ConstructImgPyramide(img_bo_fmat, img_bo_fmat_pyr.data(), img_bo_dx_fmat_pyr.data(), img_bo_dy_fmat_pyr.data(), img_bo_pyr.data(), img_bo_dx_pyr.data(), img_bo_dy_pyr.data(), lv_f, lv_l, rpyrtype, 1, patchsz, padw, padh);
 
   // Timing, image gradients and pyramid
   if (verbosity > 1)
@@ -389,12 +389,12 @@ int main( int argc, char** argv )
   cv::Mat flowout(sz.height / sc_fct , sz.width / sc_fct, CV_32FC1); // Depth
   #endif       
   
-  OFC::OFClass ofc(img_ao_pyr, img_ao_dx_pyr, img_ao_dy_pyr, 
-                    img_bo_pyr, img_bo_dx_pyr, img_bo_dy_pyr, 
+  OFC::OFClass ofc(img_ao_pyr.data(), img_ao_dx_pyr.data(), img_ao_dy_pyr.data(),
+                    img_bo_pyr.data(), img_bo_dx_pyr.data(), img_bo_dy_pyr.data(),
                     patchsz,  // extra image padding to avoid border violation check
                     (float*)flowout.data,   // pointer to n-band output float array
                     nullptr,  // pointer to n-band input float array of size of first (coarsest) scale, pass as nullptr to disable
-                    sz.width, sz.height, 
+                    sz.width, sz.height,
                     lv_f, lv_l, maxiter, miniter, mindprate, mindrrate, minimgerr, patchsz, poverl, 
                     usefbcon, costfct, nochannels, patnorm, 
                     usetvref, tv_alpha, tv_gamma, tv_delta, tv_innerit, tv_solverit, tv_sor,

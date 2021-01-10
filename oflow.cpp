@@ -79,7 +79,7 @@ namespace OFC
   op.nop = 1;
   #endif
   op.p_samp_s = p_samp_s_in;  // patch has even border length, center pixel is at (p_samp_s/2, p_samp_s/2) (ZERO INDEXED!) 
-  op.outlierthresh = (float)op.p_samp_s/2;     
+  op.outlierthresh = (float)op.p_samp_s/2;
   op.patove = patove_in;
   op.sc_f = sc_f_in;
   op.sc_l = sc_l_in;
@@ -88,7 +88,7 @@ namespace OFC
   op.dp_thresh = dp_thresh_in*dp_thresh_in; // saves the square to compare with squared L2-norm (saves sqrt operation)
   op.dr_thresh = dr_thresh_in;
   op.res_thresh = res_thresh_in;
-  op.steps = std::max(1,  (int)floor(op.p_samp_s*(1-op.patove)));  
+  op.steps = std::max(1,  (int)floor(op.p_samp_s*(1-op.patove)));
   op.novals = noc_in * (p_samp_s_in)*(p_samp_s_in);
   op.usefbcon = usefbcon_in;
   op.costfct = costfct_in;
@@ -114,7 +114,7 @@ namespace OFC
     tv_start_all_global = std::chrono::steady_clock::now();
 
   // ... per each scale
-  double tt_patconstr[op.noscales], tt_patinit[op.noscales], tt_patoptim[op.noscales], tt_compflow[op.noscales], tt_tvopt[op.noscales], tt_all[op.noscales];
+  std::vector<double> tt_patconstr(op.noscales), tt_patinit(op.noscales), tt_patoptim(op.noscales), tt_compflow(op.noscales), tt_tvopt(op.noscales), tt_all(op.noscales);
   for (int sl=op.sc_f; sl>=op.sc_l; --sl) 
   {
     tt_patconstr[sl-op.sc_l]=0;
@@ -155,15 +155,15 @@ namespace OFC
 
     cpr[i] = cpl[i];
     cpr[i].camlr = 1;
-    
-    flow_fw[i]   = new float[op.nop * cpl[i].width * cpl[i].height]; 
+
+    flow_fw[i]   = new float[op.nop * cpl[i].width * cpl[i].height];
     grid_fw[i]   = new OFC::PatGridClass(&(cpl[i]), &(cpr[i]), &op);
 
     if (op.usefbcon) // for merging forward and backward flow 
     {
       flow_bw[i] = new float[op.nop * cpr[i].width * cpr[i].height];
       grid_bw[i] = new OFC::PatGridClass(&(cpr[i]), &(cpl[i]), &op);
-      
+
       // Make grids known to each other, necessary for AggregateFlowDense();
       grid_fw[i]->SetComplGrid( grid_bw[i] );
       grid_bw[i]->SetComplGrid( grid_fw[i] ); 
@@ -176,12 +176,12 @@ namespace OFC
   {
     tv_end_all = std::chrono::steady_clock::now();
     double tt_gridconst = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
-    printf("TIME (Grid Memo. Alloc. ) (ms): %3g\n", tt_gridconst);          
+    printf("TIME (Grid Memo. Alloc. ) (ms): %3g\n", tt_gridconst);
   }
 
 
   // *** Main loop; Operate over scales, coarse-to-fine
-  for (int sl=op.sc_f; sl>=op.sc_l; --sl)  
+  for (int sl=op.sc_f; sl>=op.sc_l; --sl)
   {
     int ii = sl-op.sc_l;
 
@@ -221,19 +221,19 @@ namespace OFC
 
     // Timing, Grid initialization
     if (op.verbosity>1)
-    {    
+    {
       tv_end_all = std::chrono::steady_clock::now();
       tt_patinit[ii] = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
       tt_all[ii] += tt_patinit[ii];
       tv_start_all = std::chrono::steady_clock::now();
-    }      
+    }
     
 
     // Dense Inverse Search. (Step 3 in Algorithm 1 of paper)
     grid_fw[ii]->Optimize();
     if (op.usefbcon)
       grid_bw[ii]->Optimize();
-      
+
 //     if (op.verbosity==4) // needed for verbosity >= 3, DISVISUAL
 //     {
 //       grid_fw[ii]->OptimizeAndVisualize(pow(2, sl));
@@ -247,7 +247,7 @@ namespace OFC
 //         grid_bw[ii]->Optimize();
 //     }
 
-    
+
     // Timing, DIS
     if (op.verbosity>1)
     {
@@ -284,12 +284,12 @@ namespace OFC
     // Variational refinement, (Step 5 in Algorithm 1 of paper)
     if (op.usetvref)
     {
-      OFC::VarRefClass varref_fw(im_ao[sl], im_ao_dx[sl], im_ao_dy[sl], 
+      OFC::VarRefClass varref_fw(im_ao[sl], im_ao_dx[sl], im_ao_dy[sl],
                                 im_bo[sl], im_bo_dx[sl], im_bo_dy[sl]
                                 ,&(cpl[ii]), &(cpr[ii]), &op, tmp_ptr);
       
       if (op.usefbcon  && sl > op.sc_l )    // skip at last scale, backward flow no longer needed
-          OFC::VarRefClass varref_bw(im_bo[sl], im_bo_dx[sl], im_bo_dy[sl], 
+          OFC::VarRefClass varref_bw(im_bo[sl], im_bo_dx[sl], im_bo_dy[sl],
                                     im_ao[sl], im_ao_dx[sl], im_ao_dy[sl]
                                     ,&(cpr[ii]), &(cpl[ii]), &op, flow_bw[ii]);
     }
@@ -337,13 +337,13 @@ namespace OFC
   }
 
   // Clean up
-  for (int sl=op.sc_f; sl>=op.sc_l; --sl) 
+  for (int sl=op.sc_f; sl>=op.sc_l; --sl)
   {
 
-    delete[] flow_fw[sl-op.sc_l];    
+    delete[] flow_fw[sl-op.sc_l];
     delete grid_fw[sl-op.sc_l];
 
-    if (op.usefbcon) 
+    if (op.usefbcon)
     {
       delete[] flow_bw[sl-op.sc_l];
       delete grid_bw[sl-op.sc_l];

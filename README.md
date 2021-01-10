@@ -35,8 +35,8 @@ a slower variant operating on RGB images (`run_*_RGB`) is provided.
 ```
 mkdir build
 cd build
-cmake -G "MinGW Makefiles" ../ -DCMAKE_BUILD_TYPE=Release
-cmake --build . --parallel
+cmake -G "Visual Studio 15 2017 Win64" -T host=x64 ../
+cmake --build . --config Release --parallel
 ```
 
 The code depends on Eigen3 and OpenCV. However, OpenCV is only used for image loading, 
