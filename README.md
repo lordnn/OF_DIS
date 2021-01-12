@@ -1,7 +1,6 @@
 # Fast Optical Flow using Dense Inverse Search (DIS) #
 
-Our code is released only for scientific or personal use.
-Please contact us for commercial use.
+Original code was released only for scientific or personal use.
 
 If used this work, please cite:
 

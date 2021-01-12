@@ -652,20 +652,15 @@ void color_image_convolve_hv(color_image_t *dst, const color_image_t *src, const
             dst_red = {width,height,stride,dst->c1}, dst_green = {width,height,stride,dst->c2}, dst_blue = {width,height,stride,dst->c3};
     // horizontal and vertical
     if(horiz_conv != NULL && vert_conv != NULL){
-        float *tmp_data = malloc(sizeof(float)*stride*height);
-        if(tmp_data == NULL){
-            fprintf(stderr,"error color_image_convolve_hv(): not enough memory\n");
-            exit(1);
-        }  
-        image_t tmp = {width,height,stride,tmp_data};   
+        image_t *tmp = image_new(width, height);
         // perform convolution for each channel
-        convolve_horiz(&tmp,&src_red,horiz_conv); 
-        convolve_vert(&dst_red,&tmp,vert_conv); 
-        convolve_horiz(&tmp,&src_green,horiz_conv);
-        convolve_vert(&dst_green,&tmp,vert_conv); 
-        convolve_horiz(&tmp,&src_blue,horiz_conv); 
-        convolve_vert(&dst_blue,&tmp,vert_conv);
-        free(tmp_data);
+        convolve_horiz(tmp,&src_red,horiz_conv); 
+        convolve_vert(&dst_red,tmp,vert_conv); 
+        convolve_horiz(tmp,&src_green,horiz_conv);
+        convolve_vert(&dst_green,tmp,vert_conv); 
+        convolve_horiz(tmp,&src_blue,horiz_conv); 
+        convolve_vert(&dst_blue,tmp,vert_conv);
+        image_delete(tmp);
     }else if(horiz_conv != NULL && vert_conv == NULL){ // only horizontal
         convolve_horiz(&dst_red,&src_red,horiz_conv);
         convolve_horiz(&dst_green,&src_green,horiz_conv);
@@ -686,16 +681,11 @@ void image_convolve_hv(image_t *dst, const image_t *src, const convolution_t *ho
             dst_red = {width,height,stride,dst->c1};
     // horizontal and vertical
     if(horiz_conv != NULL && vert_conv != NULL){
-        float *tmp_data = malloc(sizeof(float)*stride*height);
-        if(tmp_data == NULL){
-          fprintf(stderr,"error image_convolve_hv(): not enough memory\n");
-          exit(1);
-        }  
-        image_t tmp = {width,height,stride,tmp_data};   
+        image_t *tmp = image_new(width, height);
         // perform convolution for each channel
-        convolve_horiz(&tmp,&src_red,horiz_conv); 
-        convolve_vert(&dst_red,&tmp,vert_conv); 
-        free(tmp_data);
+        convolve_horiz(tmp,&src_red,horiz_conv); 
+        convolve_vert(&dst_red,tmp,vert_conv); 
+        image_delete(tmp);
     }else if(horiz_conv != NULL && vert_conv == NULL){ // only horizontal
         convolve_horiz(&dst_red,&src_red,horiz_conv);
     }else if(vert_conv != NULL && horiz_conv == NULL){ // only vertical
