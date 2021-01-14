@@ -3,6 +3,9 @@
 #include <string.h>
 #include <malloc.h>
 #include <math.h>
+#include <algorithm>
+#include <numeric>
+#include <vector>
 
 #include "image.h"
 
@@ -372,79 +375,62 @@ convolution_t *convolution_new(const int order, const float *half_coeffs, const 
     return conv;
 }
 
-static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolution_t *conv){
-#define STEP 4
-    const int iterline = src->stride>>2;
+static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolution_t *conv) {
+    const int iterline = src->stride;
     const float *coeff = conv->coeffs;
-    //const float *coeff_accu = conv->coeffs_accu;
-    const float *srcp = src->c1, *srcp_p1 = src->c1+src->stride;
-    float *dstp = dst->c1;
-    int i;
-    __m128 mc012 = _mm_set1_ps(coeff[0]+coeff[1]);
-    const __m128 mc2 = _mm_set1_ps(coeff[2]);
-    for(i=iterline ; i-- ; ){ // first line
-        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp)), _mm_mul_ps(mc2, _mm_load_ps(srcp_p1))));
-        dstp+=STEP; srcp+=STEP; srcp_p1+=STEP;
-    }
-    const float *srcp_m1 = src->c1; 
-    const __m128 mc0 = _mm_set1_ps(coeff[0]);
-    mc012 = _mm_set1_ps(coeff[1]);
-    for(i=src->height-2 ; i-- ; ){ // others line
-        int j;
-        for(j=iterline ; j-- ; ){
-            _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m1)), _mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp)), _mm_mul_ps(mc2, _mm_load_ps(srcp_p1)))));
-            dstp+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP;
+    const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]);
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+    for (int x = 0; x < iterline; x += 4) {
+        __m128 tmpSrc[3];
+        int idx[3] = {0, 1, 2};
+        const float *pSrc = src->c1 + x;
+        float *pDst = dst->c1 + x;
+        tmpSrc[idx[0]] = tmpSrc[idx[1]] = _mm_load_ps(pSrc);
+        for (int y = src->height - 1; y--;) {
+            pSrc += src->stride;
+            tmpSrc[idx[2]] = _mm_load_ps(pSrc);
+            _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]]))));
+            pDst += dst->stride;
+            // rotate
+            std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
         }
+        tmpSrc[idx[2]] = tmpSrc[idx[1]];
+        _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]]))));
     }
-    mc012 = _mm_set1_ps(coeff[1]+coeff[2]);
-    for(i=iterline ; i-- ; ){ // last line
-        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc012, _mm_load_ps(srcp))));
-        dstp+=STEP; srcp_m1+=STEP; srcp+=STEP;
-    }
-#undef STEP
 }
 
-static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolution_t *conv){
-#define STEP 4
-    const int iterline = src->stride>>2;
+static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolution_t *conv) {
+    const int iterline = src->stride;
     const float *coeff = conv->coeffs;
-    //const float *coeff_accu = conv->coeffs_accu;
-    const float *srcp = src->c1, *srcp_p1 = srcp + src->stride, *srcp_p2 = srcp_p1 + src->stride;
-    float *dstp = dst->c1;
-    __m128 mc012 = _mm_set1_ps(coeff[0]+coeff[1]+coeff[2]);
-    const __m128 mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
-    int i;
-    for(i=iterline ; i-- ; ){ // first line
-        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp)), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2)))));
-        dstp+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
-    }
-    mc012 = _mm_set1_ps(coeff[0]+coeff[1]);
-    const __m128 mc2 = _mm_set1_ps(coeff[2]);
-    const float *srcp_m1 = src->c1;
-    for(i=iterline ; i-- ; ){ // second line
-        _mm_store_ps(dstp, _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc012, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc2, _mm_load_ps(srcp))), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2)))));
-        dstp+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
-    }
-    const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]);
-    const float *srcp_m2 = src->c1;
-    for(i=src->height-4 ; i-- ; ){ // others line
-        int j;
-        for(j=iterline ; j-- ; ){
-            _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc2, _mm_load_ps(srcp))), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2))))));
-            dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
+    const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]), mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+    for (int x = 0; x < iterline; x += 4) {
+        __m128 tmpSrc[5];
+        int idx[5] = {0, 1, 2, 3, 4};
+        const float *pSrc = src->c1 + x;
+        float *pDst = dst->c1 + x;
+        tmpSrc[idx[0]] = tmpSrc[idx[1]] = tmpSrc[idx[2]] = _mm_load_ps(pSrc);
+        pSrc += src->stride;
+        tmpSrc[idx[3]] = _mm_load_ps(pSrc);
+        for (int y = src->height - 2; y--;) {
+            pSrc += src->stride;
+            tmpSrc[idx[4]] = _mm_load_ps(pSrc);
+            _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]])), _mm_add_ps(_mm_mul_ps(mc3, tmpSrc[idx[3]]), _mm_mul_ps(mc4, tmpSrc[idx[4]])))));
+            pDst += dst->stride;
+            // rotate
+            std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
         }
+        tmpSrc[idx[4]] = tmpSrc[idx[3]];
+        _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]])), _mm_add_ps(_mm_mul_ps(mc3, tmpSrc[idx[3]]), _mm_mul_ps(mc4, tmpSrc[idx[4]])))));
+        pDst += dst->stride;
+        std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
+        tmpSrc[idx[4]] = tmpSrc[idx[3]];
+        _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]])), _mm_add_ps(_mm_mul_ps(mc3, tmpSrc[idx[3]]), _mm_mul_ps(mc4, tmpSrc[idx[4]])))));
     }
-    mc012 = _mm_set1_ps(coeff[3]+coeff[4]);
-    for(i=iterline ; i-- ; ){ // second to last line
-        _mm_store_ps(dstp, _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_mul_ps(mc1, _mm_load_ps(srcp_m1))), _mm_add_ps(_mm_mul_ps(mc2, _mm_load_ps(srcp)), _mm_mul_ps(mc012, _mm_load_ps(srcp_p1)))));
-        dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP;
-    }
-    mc012 = _mm_set1_ps(coeff[2]+coeff[3]+coeff[4]);
-    for(i=iterline ; i-- ; ){ // last line
-        _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc012, _mm_load_ps(srcp)))));
-        dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP;
-    }
-#undef STEP
 }
 
 static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convolution_t *conv){
@@ -577,59 +563,39 @@ void convolve_vert(image_t *dest, const image_t *src, const convolution_t *conv)
         convolve_vert_fast_5(dest,src,conv);
         return;
     }
-    float *in = src->c1;
-    float *out = dest->c1;
-    int i0 = -conv->order;
-    int i1 = +conv->order;
-    float *coeff = conv->coeffs + conv->order;
-    float *coeff_accu = conv->coeffs_accu + conv->order;
-    int i, j, ii;
-    float *o = out;
-    const float *alast = in + src->stride * (src->height - 1);
-    const float *f0 = coeff + i0;
-    for(i = 0; i < -i0; i++){
-        float fa = coeff_accu[-i - 1];
-        const float *al = in + i * src->stride;
-        for(j = 0; j < src->width; j++){
-            float sum = fa * in[j];
-            for(ii = -i; ii <= i1; ii++){
-                sum += coeff[ii] * al[j + ii * src->stride];
+    const float *coeff = conv->coeffs;
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+    for (int x = 0; x < src->width; ++x) {
+        const auto *pSrc = src->c1;
+        auto *pDst = dest->c1;
+        std::vector<float> tmp(conv->order * 2 + 1);
+        std::fill_n(std::begin(tmp), conv->order + 1, pSrc[x]);
+        for (int y = 1; y < conv->order; ++y) {
+            pSrc += src->stride;
+            tmp[conv->order + y] = pSrc[x];
+        }
+        for (int y = conv->order; y < src->height; ++y) {
+            pSrc += src->stride;
+            tmp.back() = pSrc[x];
+            float sum{};
+            for (int i = conv->order * 2 + 1; i--;) {
+                sum += tmp[i] * coeff[i];
             }
-            *o++ = sum;
+            pDst[x] = sum;
+            pDst += dest->stride;
+            std::rotate(std::begin(tmp), std::next(std::begin(tmp), 1), std::end(tmp));
         }
-        for(j = 0; j < src->stride - src->width; j++) 
-        {
-            o++;
-        }
-    }
-    for(; i < src->height - i1; i++){
-        const float *al = in + (i + i0) * src->stride;
-        for(j = 0; j < src->width; j++){
-            float sum = 0;
-            const float *al2 = al;
-            for(ii = 0; ii <= i1 - i0; ii++){
-                sum += f0[ii] * al2[0];
-                al2 += src->stride;
+        for (int y = 0; y <conv->order; ++y) {
+            tmp.back() = pSrc[x];
+            float sum{};
+            for (int i = conv->order * 2 + 1; i--;) {
+                sum += tmp[i] * coeff[i];
             }
-            *o++ = sum;
-            al++;
-        }
-        for(j = 0; j < src->stride - src->width; j++){
-            o++;
-        }
-    }
-    for(;i < src->height; i++){
-        float fa = coeff_accu[src->height - i];
-        const float *al = in + i * src->stride;
-        for(j = 0; j < src->width; j++){
-            float sum = fa * alast[j];
-            for(ii = i0; ii <= src->height - 1 - i; ii++){
-                sum += coeff[ii] * al[j + ii * src->stride];
-            }
-            *o++ = sum;
-        }
-        for(j = 0; j < src->stride - src->width; j++){
-            o++;
+            pDst[x] = sum;
+            pDst += dest->stride;
+            std::rotate(std::begin(tmp), std::next(std::begin(tmp), 1), std::end(tmp));
         }
     }
 }
