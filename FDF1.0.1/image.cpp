@@ -4,6 +4,7 @@
 #include <malloc.h>
 #include <math.h>
 #include <algorithm>
+#include <array>
 #include <numeric>
 #include <vector>
 
@@ -384,7 +385,7 @@ static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolu
 #endif
     for (int x = 0; x < iterline; x += 4) {
         __m128 tmpSrc[3];
-        int idx[3] = {0, 1, 2};
+        std::array<int, 3> idx = {{0, 1, 2}};
         const float *pSrc = src->c1 + x;
         float *pDst = dst->c1 + x;
         tmpSrc[idx[0]] = tmpSrc[idx[1]] = _mm_load_ps(pSrc);
@@ -410,7 +411,7 @@ static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolu
 #endif
     for (int x = 0; x < iterline; x += 4) {
         __m128 tmpSrc[5];
-        int idx[5] = {0, 1, 2, 3, 4};
+        std::array<int, 5> idx = {{0, 1, 2, 3, 4}};
         const float *pSrc = src->c1 + x;
         float *pDst = dst->c1 + x;
         tmpSrc[idx[0]] = tmpSrc[idx[1]] = tmpSrc[idx[2]] = _mm_load_ps(pSrc);
@@ -440,8 +441,9 @@ static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convol
     const float *coeff = conv->coeffs;
     float *srcp = src->c1, *dstp = dst->c1;
     // create shifted version of src
-    float *src_p1 = (float*) _aligned_malloc(sizeof(float)*src->stride*2, 16),
-          *src_m1 = src_p1 + src->stride;
+    image_t *tmp = image_new(src->width, 2);
+    float *src_p1 = tmp->c1,
+          *src_m1 = src_p1 + tmp->stride;
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]);
     int j;
     for(j=0;j<src->height;j++){
@@ -461,7 +463,7 @@ static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convol
             dstp+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP;
         }
     }
-    _aligned_free(src_p1);
+    image_delete(tmp);
 #undef STEP
 }
 
@@ -472,10 +474,11 @@ static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convol
     const int iterline = src->stride>>2;
     const float *coeff = conv->coeffs;
     float *srcp = src->c1, *dstp = dst->c1;
-    float *src_p1 = (float*) _aligned_malloc(sizeof(float)*src->stride*4, 16),
-          *src_p2 = src_p1+src->stride,
-          *src_m1 = src_p2+src->stride,
-          *src_m2 = src_m1+src->stride;
+    image_t *tmp = image_new(src->width, 4);
+    float *src_p1 = tmp->c1,
+          *src_p2 = src_p1 + tmp->stride,
+          *src_m1 = src_p2 + tmp->stride,
+          *src_m2 = src_m1 + tmp->stride;
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]), mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
     int j;
     for(j=0;j<src->height;j++){
@@ -500,16 +503,16 @@ static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convol
             dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
         }
     }
-    _aligned_free(src_p1);
+    image_delete(tmp);
 #undef STEP
 }
 
 /* perform an horizontal convolution of an image */
 void convolve_horiz(image_t *dest, const image_t *src, const convolution_t *conv){
-    if(conv->order==1){
+    if (conv->order==1) {
         convolve_horiz_fast_3(dest,src,conv);
         return;
-    }else if(conv->order==2){
+    } else if(conv->order==2) {
         convolve_horiz_fast_5(dest,src,conv);
         return;
     }
@@ -521,34 +524,39 @@ void convolve_horiz(image_t *dest, const image_t *src, const convolution_t *conv
     int i1 = +conv->order;
     float *coeff = conv->coeffs + conv->order;
     float *coeff_accu = conv->coeffs_accu + conv->order;
-    for(j = 0; j < src->height; j++){
+    std::vector<float> tmp(conv->order * 2 + 1);
+    for(j = 0; j < src->height; j++) {
         const float *al = in + j * src->stride;
         const float *f0 = coeff + i0;
         float sum;
-        for(i = 0; i < -i0; i++){
-            sum=coeff_accu[-i - 1] * al[0];
-            for(ii = i1 + i; ii >= 0; ii--){
-                sum += coeff[ii - i] * al[ii];
+        std::copy_n(al, tmp.size() - 1, tmp.data());
+        al = std::next(al, tmp.size() - 1);
+        for(i = 0; i < -i0; i++) {
+            sum=coeff_accu[-i - 1] * tmp[0];
+            for(ii = i1 + i; ii >= 0; ii--) {
+                sum += coeff[ii - i] * tmp[ii];
             }
             *o++ = sum;
         }
-        for(; i < src->width - i1; i++){
+        for(; i < src->width - i1; i++) {
+            tmp.back() = al[0];
             sum = 0;
-            for(ii = i1 - i0; ii >= 0; ii--){
-                sum += f0[ii] * al[ii];
+            for(ii = i1 - i0; ii >= 0; ii--) {
+                sum += f0[ii] * tmp[ii];
             }
             al++;
             *o++ = sum;
+            std::rotate(std::begin(tmp), std::next(std::begin(tmp), 1), std::end(tmp));
         }
-        for(; i < src->width; i++){
-            sum = coeff_accu[src->width - i] * al[src->width - i0 - 1 - i];
+        for(; i < src->width; i++) {
+            sum = coeff_accu[src->width - i] * tmp[src->width - i0 - 1 - i];
             for(ii = src->width - i0 - 1 - i; ii >= 0; ii--){
-                sum += f0[ii] * al[ii];
+                sum += f0[ii] * tmp[ii];
             }
-            al++;
             *o++ = sum;
+            std::rotate(std::begin(tmp), std::next(std::begin(tmp), 1), std::end(tmp));
         }
-        for(i = 0; i < src->stride - src->width; i++){
+        for(; i < src->stride; i++) {
             o++;
         }
     }
@@ -559,7 +567,7 @@ void convolve_vert(image_t *dest, const image_t *src, const convolution_t *conv)
     if(conv->order==1){
         convolve_vert_fast_3(dest,src,conv);
         return;
-    }else if(conv->order==2){
+    } else if(conv->order==2){
         convolve_vert_fast_5(dest,src,conv);
         return;
     }
@@ -602,8 +610,7 @@ void convolve_vert(image_t *dest, const image_t *src, const convolution_t *conv)
 
 /* free memory of a convolution structure */
 void convolution_delete(convolution_t *conv){
-    if(conv)
-    {
+    if(conv) {
         free(conv->coeffs);
         free(conv->coeffs_accu);
         free(conv);
@@ -617,24 +624,22 @@ void color_image_convolve_hv(color_image_t *dst, const color_image_t *src, const
     image_t src_red = {width,height,stride,src->c1}, src_green = {width,height,stride,src->c2}, src_blue = {width,height,stride,src->c3}, 
             dst_red = {width,height,stride,dst->c1}, dst_green = {width,height,stride,dst->c2}, dst_blue = {width,height,stride,dst->c3};
     // horizontal and vertical
-    if(horiz_conv != NULL && vert_conv != NULL){
-        image_t *tmp = image_new(width, height);
+    if(horiz_conv != NULL && vert_conv != NULL) {
         // perform convolution for each channel
-        convolve_horiz(tmp,&src_red,horiz_conv); 
-        convolve_vert(&dst_red,tmp,vert_conv); 
-        convolve_horiz(tmp,&src_green,horiz_conv);
-        convolve_vert(&dst_green,tmp,vert_conv); 
-        convolve_horiz(tmp,&src_blue,horiz_conv); 
-        convolve_vert(&dst_blue,tmp,vert_conv);
-        image_delete(tmp);
-    }else if(horiz_conv != NULL && vert_conv == NULL){ // only horizontal
-        convolve_horiz(&dst_red,&src_red,horiz_conv);
-        convolve_horiz(&dst_green,&src_green,horiz_conv);
-        convolve_horiz(&dst_blue,&src_blue,horiz_conv);
-    }else if(vert_conv != NULL && horiz_conv == NULL){ // only vertical
-        convolve_vert(&dst_red,&src_red,vert_conv);
-        convolve_vert(&dst_green,&src_green,vert_conv);
-        convolve_vert(&dst_blue,&src_blue,vert_conv);
+        convolve_horiz(&dst_red, &src_red, horiz_conv); 
+        convolve_vert(&dst_red, &dst_red, vert_conv); 
+        convolve_horiz(&dst_green, &src_green, horiz_conv);
+        convolve_vert(&dst_green, &dst_green, vert_conv); 
+        convolve_horiz(&dst_blue, &src_blue, horiz_conv); 
+        convolve_vert(&dst_blue, &dst_blue, vert_conv);
+    } else if(horiz_conv != NULL && vert_conv == NULL) { // only horizontal
+        convolve_horiz(&dst_red, &src_red, horiz_conv);
+        convolve_horiz(&dst_green, &src_green, horiz_conv);
+        convolve_horiz(&dst_blue, &src_blue, horiz_conv);
+    } else if(vert_conv != NULL && horiz_conv == NULL) { // only vertical
+        convolve_vert(&dst_red, &src_red, vert_conv);
+        convolve_vert(&dst_green, &src_green, vert_conv);
+        convolve_vert(&dst_blue, &src_blue, vert_conv);
     }
 }
 
