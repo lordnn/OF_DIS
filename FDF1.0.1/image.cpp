@@ -10,6 +10,7 @@
 
 #include "image.h"
 
+#include <smmintrin.h>
 #include <xmmintrin.h>
 
 /********** Create/Delete **********/
@@ -383,13 +384,13 @@ static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolu
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-    for (int x = 0; x < iterline; x += 4) {
+    for (int x{}; x < iterline; x += 4) {
         __m128 tmpSrc[3];
         std::array<int, 3> idx = {{0, 1, 2}};
         const float *pSrc = src->c1 + x;
         float *pDst = dst->c1 + x;
         tmpSrc[idx[0]] = tmpSrc[idx[1]] = _mm_load_ps(pSrc);
-        for (int y = src->height - 1; y--;) {
+        for (int y{src->height - 1}; y--;) {
             pSrc += src->stride;
             tmpSrc[idx[2]] = _mm_load_ps(pSrc);
             _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]]))));
@@ -409,7 +410,7 @@ static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolu
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
-    for (int x = 0; x < iterline; x += 4) {
+    for (int x{}; x < iterline; x += 4) {
         __m128 tmpSrc[5];
         std::array<int, 5> idx = {{0, 1, 2, 3, 4}};
         const float *pSrc = src->c1 + x;
@@ -417,7 +418,7 @@ static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolu
         tmpSrc[idx[0]] = tmpSrc[idx[1]] = tmpSrc[idx[2]] = _mm_load_ps(pSrc);
         pSrc += src->stride;
         tmpSrc[idx[3]] = _mm_load_ps(pSrc);
-        for (int y = src->height - 2; y--;) {
+        for (int y{src->height - 2}; y--;) {
             pSrc += src->stride;
             tmpSrc[idx[4]] = _mm_load_ps(pSrc);
             _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]])), _mm_add_ps(_mm_mul_ps(mc3, tmpSrc[idx[3]]), _mm_mul_ps(mc4, tmpSrc[idx[4]])))));
@@ -436,31 +437,29 @@ static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolu
 
 static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convolution_t *conv){
 #define STEP 4
-    const int stride_minus_1 = src->stride-1;
-    const int iterline = src->stride>>2;
+    const int iterline = src->stride >> 2;
     const float *coeff = conv->coeffs;
-    float *srcp = src->c1, *dstp = dst->c1;
+    float *dstp = dst->c1;
     // create shifted version of src
-    image_t *tmp = image_new(src->width, 2);
-    float *src_p1 = tmp->c1,
-          *src_m1 = src_p1 + tmp->stride;
+    image_t *tmp = image_new(src->stride + 4, 1);
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]);
-    int j;
-    for(j=0;j<src->height;j++){
-        int i;
-        float *srcptr = srcp;
-        const float right_coef = srcptr[src->width-1];
-        for(i=src->width;i<src->stride;++i)
-            srcptr[i] = right_coef;
-        src_m1[0] = srcptr[0];
-        memcpy(src_m1+1, srcptr , sizeof(float)*stride_minus_1);
-        src_p1[stride_minus_1] = right_coef;
-        memcpy(src_p1, srcptr+1, sizeof(float)*stride_minus_1);
-        const float *srcp_p1 = src_p1, *srcp_m1 = src_m1;
-        
-        for(i=0;i<iterline;i++){
-            _mm_store_ps(dstp ,_mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m1)), _mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp)), _mm_mul_ps(mc2, _mm_load_ps(srcp_p1)))));
-            dstp+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP;
+    for (int j{}; j < src->height; ++j) {
+        float *ptr_tmp = tmp->c1;
+        const float *srcptr = src->c1 + j * src->stride;
+        ptr_tmp[0] = srcptr[0];
+        memcpy(ptr_tmp + 1, srcptr , sizeof(float) * src->width);
+        std::fill_n(std::next(ptr_tmp, src->width + 1), tmp->width - src->width - 1, srcptr[src->width - 1]);
+
+        __m128 s0 = _mm_load_ps(ptr_tmp);
+        for (int i{}; i < iterline; ++i) {
+            const __m128 s4 = _mm_load_ps(ptr_tmp + 4);
+            __m128 s2 = _mm_shuffle_ps(s4, s0, 0xE4);
+            s2 = _mm_shuffle_ps(s2, s2, 0x4E);
+            __m128 s1 = _mm_blend_ps(s4, s0, 0x0E);
+            s1 = _mm_shuffle_ps(s1, s1, 0x39);
+            _mm_store_ps(dstp ,_mm_add_ps(_mm_mul_ps(mc0, s0), _mm_add_ps(_mm_mul_ps(mc1, s1), _mm_mul_ps(mc2, s2))));
+            s0 = s4;
+            dstp += STEP; ptr_tmp += STEP;
         }
     }
     image_delete(tmp);
@@ -469,38 +468,30 @@ static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convol
 
 static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convolution_t *conv){
 #define STEP 4
-    const int stride_minus_1 = src->stride-1;
-    const int stride_minus_2 = src->stride-2;
-    const int iterline = src->stride>>2;
+    const int iterline = src->stride >> 2;
     const float *coeff = conv->coeffs;
-    float *srcp = src->c1, *dstp = dst->c1;
-    image_t *tmp = image_new(src->width, 4);
-    float *src_p1 = tmp->c1,
-          *src_p2 = src_p1 + tmp->stride,
-          *src_m1 = src_p2 + tmp->stride,
-          *src_m2 = src_m1 + tmp->stride;
+    float *dstp = dst->c1;
+    image_t *tmp = image_new(src->stride + 4, 1);
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]), mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
-    int j;
-    for(j=0;j<src->height;j++){
-        int i;
-        float *srcptr = srcp;
-        const float right_coef = srcptr[src->width-1];
-        for(i=src->width;i<src->stride;++i)
-            srcptr[i] = right_coef;
-        src_m1[0] = srcptr[0];
-        memcpy(src_m1+1, srcptr , sizeof(float)*stride_minus_1);
-        src_m2[0] = src_m2[1] = srcptr[0];
-        memcpy(src_m2+2, srcptr , sizeof(float)*stride_minus_2);
-        src_p1[stride_minus_1] = right_coef;
-        memcpy(src_p1, srcptr+1, sizeof(float)*stride_minus_1);
-        src_p2[stride_minus_1] = src_p2[stride_minus_2] = right_coef;
-        memcpy(src_p2, srcptr+2, sizeof(float)*stride_minus_2);
-                
-        float *srcp_p1 = src_p1, *srcp_p2 = src_p2, *srcp_m1 = src_m1, *srcp_m2 = src_m2;
-        
-        for(i=0;i<iterline;i++){
-            _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, _mm_load_ps(srcp_m2)), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, _mm_load_ps(srcp_m1)), _mm_mul_ps(mc2, _mm_load_ps(srcp))), _mm_add_ps(_mm_mul_ps(mc3, _mm_load_ps(srcp_p1)), _mm_mul_ps(mc4, _mm_load_ps(srcp_p2))))));
-            dstp+=STEP; srcp_m2+=STEP; srcp_m1+=STEP; srcp+=STEP; srcp_p1+=STEP; srcp_p2+=STEP;
+    for (int j{}; j < src->height; ++j) {
+        float *ptr_tmp = tmp->c1;
+        const float *srcptr = src->c1 + j * src->stride;
+        ptr_tmp[0] = ptr_tmp[1] = srcptr[0];
+        memcpy(ptr_tmp + 2, srcptr , sizeof(float) * src->width);
+        std::fill_n(std::next(ptr_tmp, src->width + 2), tmp->width - src->width - 2, srcptr[src->width - 1]);
+
+        __m128 s0 = _mm_load_ps(ptr_tmp);
+        for (int i{}; i < iterline; ++i) {
+            const __m128 s4 = _mm_load_ps(ptr_tmp + 4);
+            __m128 s2 = _mm_shuffle_ps(s4, s0, 0xE4);
+            s2 = _mm_shuffle_ps(s2, s2, 0x4E);
+            __m128 s1 = _mm_blend_ps(s4, s0, 0x0E);
+            s1 = _mm_shuffle_ps(s1, s1, 0x39);
+            __m128 s3 = _mm_blend_ps(s4, s0, 0x08);
+            s3 = _mm_shuffle_ps(s3, s3, 0x93);
+            _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, s0), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, s1), _mm_mul_ps(mc2, s2)), _mm_add_ps(_mm_mul_ps(mc3, s3), _mm_mul_ps(mc4, s4)))));
+            s0 = s4;
+            dstp += STEP; ptr_tmp += STEP;
         }
     }
     image_delete(tmp);
@@ -508,11 +499,11 @@ static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convol
 }
 
 /* perform an horizontal convolution of an image */
-void convolve_horiz(image_t *dest, const image_t *src, const convolution_t *conv){
+void convolve_horiz(image_t *dest, const image_t *src, const convolution_t *conv) {
     if (conv->order==1) {
         convolve_horiz_fast_3(dest,src,conv);
         return;
-    } else if(conv->order==2) {
+    } else if (conv->order==2) {
         convolve_horiz_fast_5(dest,src,conv);
         return;
     }
@@ -525,49 +516,49 @@ void convolve_horiz(image_t *dest, const image_t *src, const convolution_t *conv
     float *coeff = conv->coeffs + conv->order;
     float *coeff_accu = conv->coeffs_accu + conv->order;
     std::vector<float> tmp(conv->order * 2 + 1);
-    for(j = 0; j < src->height; j++) {
+    for (j = 0; j < src->height; ++j) {
         const float *al = in + j * src->stride;
         const float *f0 = coeff + i0;
         float sum;
         std::copy_n(al, tmp.size() - 1, tmp.data());
         al = std::next(al, tmp.size() - 1);
-        for(i = 0; i < -i0; i++) {
+        for (i = 0; i < -i0; ++i) {
             sum=coeff_accu[-i - 1] * tmp[0];
-            for(ii = i1 + i; ii >= 0; ii--) {
+            for (ii = i1 + i; ii >= 0; --ii) {
                 sum += coeff[ii - i] * tmp[ii];
             }
             *o++ = sum;
         }
-        for(; i < src->width - i1; i++) {
+        for (; i < src->width - i1; ++i) {
             tmp.back() = al[0];
             sum = 0;
-            for(ii = i1 - i0; ii >= 0; ii--) {
+            for (ii = i1 - i0; ii >= 0; --ii) {
                 sum += f0[ii] * tmp[ii];
             }
             al++;
             *o++ = sum;
             std::rotate(std::begin(tmp), std::next(std::begin(tmp), 1), std::end(tmp));
         }
-        for(; i < src->width; i++) {
+        for (; i < src->width; ++i) {
             sum = coeff_accu[src->width - i] * tmp[src->width - i0 - 1 - i];
-            for(ii = src->width - i0 - 1 - i; ii >= 0; ii--){
+            for (ii = src->width - i0 - 1 - i; ii >= 0; --ii) {
                 sum += f0[ii] * tmp[ii];
             }
             *o++ = sum;
             std::rotate(std::begin(tmp), std::next(std::begin(tmp), 1), std::end(tmp));
         }
-        for(; i < src->stride; i++) {
+        for (; i < src->stride; ++i) {
             o++;
         }
     }
 }
 
 /* perform a vertical convolution of an image */
-void convolve_vert(image_t *dest, const image_t *src, const convolution_t *conv){
-    if(conv->order==1){
+void convolve_vert(image_t *dest, const image_t *src, const convolution_t *conv) {
+    if (conv->order==1) {
         convolve_vert_fast_3(dest,src,conv);
         return;
-    } else if(conv->order==2){
+    } else if (conv->order==2) {
         convolve_vert_fast_5(dest,src,conv);
         return;
     }
@@ -621,10 +612,10 @@ void convolution_delete(convolution_t *conv){
 void color_image_convolve_hv(color_image_t *dst, const color_image_t *src, const convolution_t *horiz_conv, const convolution_t *vert_conv){
     const int width = src->width, height = src->height, stride = src->stride;
     // separate channels of images
-    image_t src_red = {width,height,stride,src->c1}, src_green = {width,height,stride,src->c2}, src_blue = {width,height,stride,src->c3}, 
-            dst_red = {width,height,stride,dst->c1}, dst_green = {width,height,stride,dst->c2}, dst_blue = {width,height,stride,dst->c3};
+    image_t src_red = {width, height, stride, src->c1}, src_green = {width, height, stride, src->c2}, src_blue = {width, height, stride, src->c3},
+            dst_red = {width, height, stride, dst->c1}, dst_green = {width, height, stride, dst->c2}, dst_blue = {width, height, stride, dst->c3};
     // horizontal and vertical
-    if(horiz_conv != NULL && vert_conv != NULL) {
+    if (horiz_conv != NULL && vert_conv != NULL) {
         // perform convolution for each channel
         convolve_horiz(&dst_red, &src_red, horiz_conv); 
         convolve_vert(&dst_red, &dst_red, vert_conv); 
@@ -632,11 +623,11 @@ void color_image_convolve_hv(color_image_t *dst, const color_image_t *src, const
         convolve_vert(&dst_green, &dst_green, vert_conv); 
         convolve_horiz(&dst_blue, &src_blue, horiz_conv); 
         convolve_vert(&dst_blue, &dst_blue, vert_conv);
-    } else if(horiz_conv != NULL && vert_conv == NULL) { // only horizontal
+    } else if (horiz_conv != NULL && vert_conv == NULL) { // only horizontal
         convolve_horiz(&dst_red, &src_red, horiz_conv);
         convolve_horiz(&dst_green, &src_green, horiz_conv);
         convolve_horiz(&dst_blue, &src_blue, horiz_conv);
-    } else if(vert_conv != NULL && horiz_conv == NULL) { // only vertical
+    } else if (vert_conv != NULL && horiz_conv == NULL) { // only vertical
         convolve_vert(&dst_red, &src_red, vert_conv);
         convolve_vert(&dst_green, &src_green, vert_conv);
         convolve_vert(&dst_blue, &src_blue, vert_conv);
@@ -648,19 +639,17 @@ void image_convolve_hv(image_t *dst, const image_t *src, const convolution_t *ho
 {
     const int width = src->width, height = src->height, stride = src->stride;
     // separate channels of images
-    image_t src_red = {width,height,stride,src->c1}, 
-            dst_red = {width,height,stride,dst->c1};
+    image_t src_red = {width, height, stride, src->c1},
+            dst_red = {width, height, stride, dst->c1};
     // horizontal and vertical
-    if(horiz_conv != NULL && vert_conv != NULL){
-        image_t *tmp = image_new(width, height);
+    if (horiz_conv != NULL && vert_conv != NULL) {
         // perform convolution for each channel
-        convolve_horiz(tmp,&src_red,horiz_conv); 
-        convolve_vert(&dst_red,tmp,vert_conv); 
-        image_delete(tmp);
-    }else if(horiz_conv != NULL && vert_conv == NULL){ // only horizontal
-        convolve_horiz(&dst_red,&src_red,horiz_conv);
-    }else if(vert_conv != NULL && horiz_conv == NULL){ // only vertical
-        convolve_vert(&dst_red,&src_red,vert_conv);
+        convolve_horiz(&dst_red, &src_red, horiz_conv);
+        convolve_vert(&dst_red, &dst_red, vert_conv);
+    } else if (horiz_conv != NULL && vert_conv == NULL) { // only horizontal
+        convolve_horiz(&dst_red, &src_red, horiz_conv);
+    } else if (vert_conv != NULL && horiz_conv == NULL) { // only vertical
+        convolve_vert(&dst_red, &src_red, vert_conv);
     }
 }
 
