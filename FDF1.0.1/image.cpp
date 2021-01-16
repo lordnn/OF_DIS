@@ -10,8 +10,12 @@
 
 #include "image.h"
 
+#if defined(USE_SSE)
 #include <smmintrin.h>
 #include <xmmintrin.h>
+#elif defined(USE_NEON)
+#include <arm_neon.h>
+#endif
 
 /********** Create/Delete **********/
 
@@ -27,6 +31,7 @@ image_t *image_new(const int width, const int height){
     image->stride = ( (width+3) / 4 ) * 4;
     image->c1 = (float*) _aligned_malloc(image->stride*height*sizeof(float), 16);
     if(image->c1 == NULL){
+        free(image);
         fprintf(stderr, "Error: image_new() - not enough memory !\n");
         exit(1);
     }
@@ -47,14 +52,22 @@ void image_erase(image_t *image){
 
 
 /* multiply an image by a scalar */
-void image_mul_scalar(image_t *image, const float scalar){
+void image_mul_scalar(image_t *image, const float scalar) {
+#define STEP 4
     int i;
     float *imp = image->c1;
+#if defined(USE_SSE)
     const __m128 scalarp = _mm_set1_ps(scalar);
+#endif
     for( i=0 ; i<image->stride/4*image->height ; i++){
+#if defined(USE_SSE)
         _mm_store_ps(imp, _mm_mul_ps(_mm_load_ps(imp), scalarp));
-        imp+=4;
+#elif defined(USE_NEON)
+        vst1q_f32(imp, vmulq_n_f32(vld1q_f32(imp), scalar));
+#endif
+        imp += STEP;
     }
+#undef STEP
 }
 
 /* free memory of an image */
@@ -80,6 +93,7 @@ color_image_t *color_image_new(const int width, const int height){
     image->stride = ( (width+3) / 4 ) * 4;
     image->c1 = (float*) _aligned_malloc(3*image->stride*height*sizeof(float), 16);
     if(image->c1 == NULL){
+        free(image);
         fprintf(stderr, "Error: color_image_new() - not enough memory !\n");
         exit(1);
     }
@@ -319,6 +333,7 @@ float *gaussian_filter(const float sigma, int *filter_order){
     // fill the output
     float *data2 = (float*) malloc(sizeof(float)*(*filter_order+1));
     if(data2 == NULL ){
+        free(data);
         fprintf(stderr, "gaussian_filter() error: not enough memory\n");
         exit(1);
     }
@@ -380,18 +395,21 @@ convolution_t *convolution_new(const int order, const float *half_coeffs, const 
 static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolution_t *conv) {
     const int iterline = src->stride;
     const float *coeff = conv->coeffs;
+#if defined(USE_SSE)
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]);
+#endif
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
     for (int x{}; x < iterline; x += 4) {
-        __m128 tmpSrc[3];
         std::array<int, 3> idx = {{0, 1, 2}};
         const float *pSrc = src->c1 + x;
         float *pDst = dst->c1 + x;
-        tmpSrc[idx[0]] = tmpSrc[idx[1]] = _mm_load_ps(pSrc);
+#if defined(USE_SSE)
+        __m128 tmpSrc[3];
+        tmpSrc[0] = tmpSrc[1] = _mm_load_ps(pSrc);
         for (int y{src->height - 1}; y--;) {
-            pSrc += src->stride;
+            pSrc += iterline;
             tmpSrc[idx[2]] = _mm_load_ps(pSrc);
             _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]]))));
             pDst += dst->stride;
@@ -400,26 +418,47 @@ static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolu
         }
         tmpSrc[idx[2]] = tmpSrc[idx[1]];
         _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]]))));
+#elif defined(USE_NEON)
+        float32x4_t tmpSrc[3];
+        tmpSrc[0] = tmpSrc[1] = vld1q_f32(pSrc);
+        for (int y{src->height - 1}; y--;) {
+            pSrc += iterline;
+            tmpSrc[idx[2]] = vld1q_f32(pSrc);
+            float32x4_t res = vmulq_n_f32(tmpSrc[idx[0]], coeff[0]);
+            res = vmlaq_n_f32(res, tmpSrc[idx[1]], coeff[1]);
+            vst1q_f32(pDst, vmlaq_n_f32(res, tmpSrc[idx[2]], coeff[2]));
+            pDst += dst->stride;
+            // rotate
+            std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
+        }
+        tmpSrc[idx[2]] = tmpSrc[idx[1]];
+        float32x4_t res = vmulq_n_f32(mc0, tmpSrc[idx[0]], coeff[0]);
+        res = vmlaq_n_f32(res, tmpSrc[idx[1]], coeff[1]);
+        vst1q_f32(pDst, vmlaq_n_f32(res, tmpSrc[idx[2]], coeff[2]));
+#endif
     }
 }
 
 static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolution_t *conv) {
     const int iterline = src->stride;
     const float *coeff = conv->coeffs;
+#if defined(USE_SSE)
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]), mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
+#endif
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
     for (int x{}; x < iterline; x += 4) {
-        __m128 tmpSrc[5];
         std::array<int, 5> idx = {{0, 1, 2, 3, 4}};
         const float *pSrc = src->c1 + x;
         float *pDst = dst->c1 + x;
-        tmpSrc[idx[0]] = tmpSrc[idx[1]] = tmpSrc[idx[2]] = _mm_load_ps(pSrc);
+#if defined(USE_SSE)
+        __m128 tmpSrc[5];
+        tmpSrc[0] = tmpSrc[1] = tmpSrc[2] = _mm_load_ps(pSrc);
         pSrc += src->stride;
-        tmpSrc[idx[3]] = _mm_load_ps(pSrc);
+        tmpSrc[3] = _mm_load_ps(pSrc);
         for (int y{src->height - 2}; y--;) {
-            pSrc += src->stride;
+            pSrc += iterline;
             tmpSrc[idx[4]] = _mm_load_ps(pSrc);
             _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]])), _mm_add_ps(_mm_mul_ps(mc3, tmpSrc[idx[3]]), _mm_mul_ps(mc4, tmpSrc[idx[4]])))));
             pDst += dst->stride;
@@ -432,6 +471,38 @@ static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolu
         std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
         tmpSrc[idx[4]] = tmpSrc[idx[3]];
         _mm_store_ps(pDst, _mm_add_ps(_mm_mul_ps(mc0, tmpSrc[idx[0]]), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, tmpSrc[idx[1]]), _mm_mul_ps(mc2, tmpSrc[idx[2]])), _mm_add_ps(_mm_mul_ps(mc3, tmpSrc[idx[3]]), _mm_mul_ps(mc4, tmpSrc[idx[4]])))));
+#elif defined(USE_NEON)
+        float32x4_t tmpSrc[5];
+        tmpSrc[0] = tmpSrc[1] = tmpSrc[2] = vld1q_f32(pSrc);
+        pSrc += src->stride;
+        tmpSrc[3] = vld1q_f32(pSrc);
+        for (int y{src->height - 2}; y--;) {
+            pSrc += iterline;
+            tmpSrc[idx[4]] = vld1q_f32(pSrc);
+            float32x4_t res = vmulq__n_f32(tmpSrc[idx[0]], coeff[0]);
+            res = vmlaq_n_f32(res, tmpSrc[idx[1]], coeff[1]);
+            res = vmlaq_n_f32(res, tmpSrc[idx[2]], coeff[2]);
+            res = vmlaq_n_f32(res, tmpSrc[idx[3]], coeff[3]);
+            vst1q_f32(pDst, vmlaq_n_f32(res, tmpSrc[idx[4]], coeff[4]));
+            pDst += dst->stride;
+            // rotate
+            std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
+        }
+        tmpSrc[idx[4]] = tmpSrc[idx[3]];
+        float32x4_t res = vmulq_n_f32(tmpSrc[idx[0]], coeff[0]);
+        res = vmlaq_n_f32(res, tmpSrc[idx[1]], coeff[1]);
+        res = vmlaq_n_f32(res, tmpSrc[idx[2]], coeff[2]);
+        res = vmlaq_n_f32(res, tmpSrc[idx[3]], coeff[3]);
+        vst1q_f32(pDst, vmlaq_n_f32(res, tmpSrc[idx[4]], coeff[4]));
+        pDst += dst->stride;
+        std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
+        tmpSrc[idx[4]] = tmpSrc[idx[3]];
+        res = vmulq_n_f32(tmpSrc[idx[0]], coeff[0]);
+        res = vmlaq_n_f32(res, tmpSrc[idx[1]], coeff[1]);
+        res = vmlaq_n_f32(res, tmpSrc[idx[2]], coeff[2]);
+        res = vmlaq_n_f32(res, tmpSrc[idx[3]], coeff[3]);
+        vst1q_f32(pDst, vmlaq_n_f32(res, tmpSrc[idx[4]], coeff[4]));
+#endif
     }
 }
 
@@ -442,7 +513,9 @@ static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convol
     float *dstp = dst->c1;
     // create shifted version of src
     image_t *tmp = image_new(src->stride + 4, 1);
+#if defined(USE_SSE)
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]);
+#endif
     for (int j{}; j < src->height; ++j) {
         float *ptr_tmp = tmp->c1;
         const float *srcptr = src->c1 + j * src->stride;
@@ -450,17 +523,29 @@ static void convolve_horiz_fast_3(image_t *dst, const image_t *src, const convol
         memcpy(ptr_tmp + 1, srcptr , sizeof(float) * src->width);
         std::fill_n(std::next(ptr_tmp, src->width + 1), tmp->width - src->width - 1, srcptr[src->width - 1]);
 
+#if defined(USE_SSE)
         __m128 s0 = _mm_load_ps(ptr_tmp);
         for (int i{}; i < iterline; ++i) {
             const __m128 s4 = _mm_load_ps(ptr_tmp + 4);
-            __m128 s2 = _mm_shuffle_ps(s4, s0, 0xE4);
-            s2 = _mm_shuffle_ps(s2, s2, 0x4E);
+            __m128 s2 = _mm_shuffle_ps(s4, s0, _MM_SHUFFLE(3, 2, 1, 0));
+            s2 = _mm_shuffle_ps(s2, s2, _MM_SHUFFLE(1, 0, 3, 2));
             __m128 s1 = _mm_blend_ps(s4, s0, 0x0E);
-            s1 = _mm_shuffle_ps(s1, s1, 0x39);
+            s1 = _mm_shuffle_ps(s1, s1, _MM_SHUFFLE(0, 3, 2, 1));
             _mm_store_ps(dstp ,_mm_add_ps(_mm_mul_ps(mc0, s0), _mm_add_ps(_mm_mul_ps(mc1, s1), _mm_mul_ps(mc2, s2))));
             s0 = s4;
             dstp += STEP; ptr_tmp += STEP;
         }
+#elif defined(USE_NEON)
+        float32x4_t s0 = vld1q_f32(ptr_tmp);
+        for (int i{}; i < iterline; ++i) {
+            const float32x4_t s4 = vld1q_f32(ptr_tmp + 4);
+            float32x4_t res = vmulq_n_f32(s0, coeff[0]);
+            res = vmlaq_n_f32(res, vextq_f32(s0, s4, 1), coeff[1]);
+            vst1q_f32(dstp, vmlaq_n_f32(res, vextq_f32(s0, s4, 2), coeff[2]));
+            s0 = s4;
+            dstp += STEP; ptr_tmp += STEP;
+        }
+#endif
     }
     image_delete(tmp);
 #undef STEP
@@ -472,7 +557,9 @@ static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convol
     const float *coeff = conv->coeffs;
     float *dstp = dst->c1;
     image_t *tmp = image_new(src->stride + 4, 1);
+#if defined(USE_SSE)
     const __m128 mc0 = _mm_set1_ps(coeff[0]), mc1 = _mm_set1_ps(coeff[1]), mc2 = _mm_set1_ps(coeff[2]), mc3 = _mm_set1_ps(coeff[3]), mc4 = _mm_set1_ps(coeff[4]);
+#endif
     for (int j{}; j < src->height; ++j) {
         float *ptr_tmp = tmp->c1;
         const float *srcptr = src->c1 + j * src->stride;
@@ -480,19 +567,33 @@ static void convolve_horiz_fast_5(image_t *dst, const image_t *src, const convol
         memcpy(ptr_tmp + 2, srcptr , sizeof(float) * src->width);
         std::fill_n(std::next(ptr_tmp, src->width + 2), tmp->width - src->width - 2, srcptr[src->width - 1]);
 
+#if defined(USE_SSE)
         __m128 s0 = _mm_load_ps(ptr_tmp);
         for (int i{}; i < iterline; ++i) {
             const __m128 s4 = _mm_load_ps(ptr_tmp + 4);
-            __m128 s2 = _mm_shuffle_ps(s4, s0, 0xE4);
-            s2 = _mm_shuffle_ps(s2, s2, 0x4E);
+            __m128 s2 = _mm_shuffle_ps(s4, s0, _MM_SHUFFLE(3, 2, 1, 0));
+            s2 = _mm_shuffle_ps(s2, s2, _MM_SHUFFLE(1, 0, 3, 2));
             __m128 s1 = _mm_blend_ps(s4, s0, 0x0E);
-            s1 = _mm_shuffle_ps(s1, s1, 0x39);
+            s1 = _mm_shuffle_ps(s1, s1, _MM_SHUFFLE(0, 3, 2, 1));
             __m128 s3 = _mm_blend_ps(s4, s0, 0x08);
-            s3 = _mm_shuffle_ps(s3, s3, 0x93);
+            s3 = _mm_shuffle_ps(s3, s3, _MM_SHUFFLE(2, 1, 0, 3));
             _mm_store_ps(dstp, _mm_add_ps(_mm_mul_ps(mc0, s0), _mm_add_ps(_mm_add_ps(_mm_mul_ps(mc1, s1), _mm_mul_ps(mc2, s2)), _mm_add_ps(_mm_mul_ps(mc3, s3), _mm_mul_ps(mc4, s4)))));
             s0 = s4;
             dstp += STEP; ptr_tmp += STEP;
         }
+#elif defined(USE_NEON)
+        float32x4_t s0 = vld1q_f32(ptr_tmp);
+        for (int i{}; i < iterline; ++i) {
+            const float32x4_t s4 = vld1q_f32(ptr_tmp + 4);
+            float32x4_t res = vmulq_n_f32(s0, coeff[0]);
+            res = vmlaq_n_f32(res, vextq_f32(s0, s4, 1), coeff[1]);
+            res = vmlaq_n_f32(res, vextq_f32(s0, s4, 2), coeff[2]);
+            res = vmlaq_n_f32(res, vextq_f32(s0, s4, 3), coeff[3]);
+            vst1q_f32(dstp, vmlaq_n_f32(res, s4, coeff[4]));
+            s0 = s4;
+            dstp += STEP; ptr_tmp += STEP;
+        }
+#endif
     }
     image_delete(tmp);
 #undef STEP

@@ -84,7 +84,7 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
     const int stride = du->stride, width = du->width;
     const int iterheight = du->height-1, iterline = (stride)/4, width_minus_1_sizeoffloat = sizeof(float)*(width-1);
     int j,iter,i,k;
-    float *floatarray = (float*) _aligned_malloc(stride*sizeof(float)*3, 16);
+    float *floatarray = (float*)_aligned_malloc(stride*sizeof(float)*3, 16);
     if(floatarray==NULL){
         fprintf(stderr, "error in sor_coupled(): not enough memory\n");
         exit(1);
@@ -286,8 +286,6 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
         }
     }
 
-
-
    for(iter=iterations;--iter;)   // other iterations
    {
         float *a11p = a11->c1, *a12p = a12->c1, *a22p = a22->c1, *b1p = b1->c1, *b2p = b2->c1, *hp = dpsis_horiz->c1, *vp = dpsis_vert->c1;
@@ -429,11 +427,7 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
             }
         }
     }
-
-
-
     _aligned_free(floatarray);
-
 }
 
 
