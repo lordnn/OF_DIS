@@ -23,8 +23,7 @@ Is you use the variational refinement, please additionally cite:
   
 ## Compiling ##
 
-The program was only tested under a 64-bit Windows distribution.
-SSE instructions from <xmmintrin.h> were used.
+The program was tested under a 64-bit Windows and 64-bit Android.
 
 The following will build four binaries: 
 Two for optical flow (`run_OF_*`) and two for depth from stereo (`run_DE_*`).

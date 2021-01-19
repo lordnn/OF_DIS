@@ -10,7 +10,6 @@
 #define __m128 float32x4_t
 #define _mm_load_ps vld1q_f32
 #define _mm_store_ps vst1q_f32
-#define _mm_storeu_ps vst1q_f32
 #define _mm_add_ps vaddq_f32
 #define _mm_sub_ps vsubq_f32
 #define _mm_mul_ps vmulq_f32
@@ -642,7 +641,7 @@ void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, imag
             tmpy = _mm_load_ps(iy1p);
             tmp2 = _mm_add_ps(_mm_load_ps(iz1p), _mm_mul_ps(tmpx, mdup));
             n1 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(_mm_mul_ps(tmpy, tmpy), dnorm));
-            tmp = _mm_add_ps(_mm_div_ps(_mm_mul_ps(tmp2, tmp2), n1), epscolor);
+            tmp = _mm_div_ps(_mm_mul_ps(tmp2, tmp2), n1);
             #if (SELECTCHANNEL==3)
             tmpx = _mm_load_ps(ix2p);
             tmpy = _mm_load_ps(iy2p);
@@ -654,7 +653,7 @@ void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, imag
             tmp2 = _mm_add_ps(_mm_load_ps(iz3p), _mm_mul_ps(tmpx, mdup));
             n3 = _mm_add_ps(_mm_mul_ps(tmpx, tmpx), _mm_add_ps(_mm_mul_ps(tmpy, tmpy), dnorm));
             tmp = _mm_add_ps(tmp, _mm_div_ps(_mm_mul_ps(tmp2, tmp2), n3));
-            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(tmp));
+            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(_mm_add_ps(tmp, epscolor)));
 
             tmp2 = _mm_mul_ps(_mm_div_ps(tmp, n3), tmpx);
             ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp2, tmpx));
@@ -665,7 +664,7 @@ void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, imag
             mb1p = _mm_sub_ps(mb1p, _mm_mul_ps(tmp2, _mm_load_ps(iz2p)));
             tmpx = _mm_load_ps(ix1p);
             #else
-            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(_mm_mul_ps(three, tmp)));
+            tmp = _mm_div_ps(_mm_mul_ps(_mm_load_ps(maskp), hdover3), _mm_sqrt_ps(_mm_add_ps(_mm_mul_ps(three, tmp), epscolor)));
             #endif
             tmp2 = _mm_mul_ps(_mm_div_ps(tmp, n1), tmpx);
             ma11p = _mm_add_ps(ma11p, _mm_mul_ps(tmp2, tmpx));
@@ -741,85 +740,4 @@ void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, imag
         uup+=STEP; wxp+=STEP;
     }
 #undef STEP
-}
-
-
-
-/* resize the descriptors to the new size using a weighted mean */
-void descflow_resize(image_t *dst_flow_x, image_t *dst_flow_y, image_t *dst_weight, const image_t *src_flow_x, const image_t *src_flow_y, const image_t *src_weight){
-    const int src_width = src_flow_x->width, src_height = src_flow_x->height, src_stride = src_flow_x->stride,
-                dst_width = dst_flow_x->width, dst_height = dst_flow_x->height, dst_stride = dst_flow_x->stride;
-    const float scale_x = ((float)dst_width-1)/((float)src_width-1), scale_y = ((float)dst_height-1)/((float)src_height-1);
-    image_erase(dst_flow_x); image_erase(dst_flow_y); image_erase(dst_weight);
-    int j;
-    for( j=0 ; j<src_height ; j++){
-        const float yy = ((float)j)*scale_y;
-        const float yyf = floor(yy);
-        const float dy = yy-yyf;
-        const int y1 = MINMAX_TA( (int) yyf   , dst_height);
-        const int y2 = MINMAX_TA( (int) yyf+1 , dst_height);
-        int i;
-        for( i=0 ; i<src_width ; i++ ){
-            const float weight = src_weight->c1[j*src_stride+i];
-            if( weight<0.0000000001f ) continue;
-            const float xx = ((float)i)*scale_x;
-            const float xxf = floor(xx);
-            const float dx = xx-xxf;
-            const int x1 = MINMAX_TA( (int) xxf   , dst_width);
-            const int x2 = MINMAX_TA( (int) xxf+1 , dst_width);
-            float weightxy, newweight;
-            if( dx ){
-                if( dy ){
-                    weightxy = weight*dx*dy;
-                    newweight = dst_weight->c1[y2*dst_stride+x2] + weightxy;
-                    dst_flow_x->c1[y2*dst_stride+x2] = (dst_flow_x->c1[y2*dst_stride+x2]*dst_weight->c1[y2*dst_stride+x2] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
-                    dst_flow_y->c1[y2*dst_stride+x2] = (dst_flow_y->c1[y2*dst_stride+x2]*dst_weight->c1[y2*dst_stride+x2] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
-                    dst_weight->c1[y2*dst_stride+x2] = newweight;
-                }
-                weightxy = weight*dx*(1.0f-dy);
-                newweight = dst_weight->c1[y1*dst_stride+x2] + weightxy;
-                dst_flow_x->c1[y1*dst_stride+x2] = (dst_flow_x->c1[y1*dst_stride+x2]*dst_weight->c1[y1*dst_stride+x2] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
-                dst_flow_y->c1[y1*dst_stride+x2] = (dst_flow_y->c1[y1*dst_stride+x2]*dst_weight->c1[y1*dst_stride+x2] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
-                dst_weight->c1[y1*dst_stride+x2] = newweight;
-            }
-            if( dy ) {
-                weightxy = weight*(1.0f-dx)*dy;
-                newweight = dst_weight->c1[y2*dst_stride+x1] + weightxy;
-                dst_flow_x->c1[y2*dst_stride+x1] = (dst_flow_x->c1[y2*dst_stride+x1]*dst_weight->c1[y2*dst_stride+x1] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
-                dst_flow_y->c1[y2*dst_stride+x1] = (dst_flow_y->c1[y2*dst_stride+x1]*dst_weight->c1[y2*dst_stride+x1] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
-                dst_weight->c1[y2*dst_stride+x1] = newweight;
-            }
-            weightxy = weight*(1.0f-dx)*(1.0f-dy);
-            newweight = dst_weight->c1[y1*dst_stride+x1] + weightxy;
-            dst_flow_x->c1[y1*dst_stride+x1] = (dst_flow_x->c1[y1*dst_stride+x1]*dst_weight->c1[y1*dst_stride+x1] + src_flow_x->c1[j*src_stride+i]*weightxy*scale_x)/newweight;
-            dst_flow_y->c1[y1*dst_stride+x1] = (dst_flow_y->c1[y1*dst_stride+x1]*dst_weight->c1[y1*dst_stride+x1] + src_flow_y->c1[j*src_stride+i]*weightxy*scale_y)/newweight;
-            dst_weight->c1[y1*dst_stride+x1] = newweight;
-        }
-    }
-}
-
-/* resize the descriptors to the new size using a nearest neighbor method while keeping the descriptor with the higher weight at the end */
-void descflow_resize_nn(image_t *dst_flow_x, image_t *dst_flow_y, image_t *dst_weight, const image_t *src_flow_x, const image_t *src_flow_y, const image_t *src_weight){
-    const int src_width = src_flow_x->width, src_height = src_flow_x->height, src_stride = src_flow_x->stride,
-                dst_width = dst_flow_x->width, dst_height = dst_flow_x->height, dst_stride = dst_flow_x->stride;
-    const float scale_x = ((float)dst_width-1)/((float)src_width-1), scale_y = ((float)dst_height-1)/((float)src_height-1);
-    image_erase(dst_flow_x); image_erase(dst_flow_y); image_erase(dst_weight);
-    int j;
-    for( j=0 ; j<src_height ; j++){
-        const float yy = ((float)j)*scale_y;
-        const int y = (int) 0.5f+yy; // equivalent to round(yy)
-        int i;
-        for( i=0 ; i<src_width ; i++ ){
-            const float weight = src_weight->c1[j*src_stride+i];
-            if( !weight )
-                continue;
-            const float xx = ((float)i)*scale_x;
-            const int x = (int) 0.5f+xx; // equivalent to round(xx)
-            if( dst_weight->c1[y*dst_stride+x] < weight ){
-                dst_weight->c1[y*dst_stride+x] = weight;
-                dst_flow_x->c1[y*dst_stride+x] = src_flow_x->c1[j*src_stride+i]*scale_x;
-                dst_flow_y->c1[y*dst_stride+x] = src_flow_y->c1[j*src_stride+i]*scale_y;
-            }
-        }
-    }
 }

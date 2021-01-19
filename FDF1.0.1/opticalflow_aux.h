@@ -53,13 +53,6 @@ void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, imag
 void compute_data_DE(image_t *a11, image_t *b1, image_t *mask, image_t *wx, image_t *du, image_t *uu, color_image_t *Ix, color_image_t *Iy, color_image_t *Iz, color_image_t *Ixx, color_image_t *Ixy, color_image_t *Iyy, color_image_t *Ixz, color_image_t *Iyz, const float half_delta_over3, const float half_beta, const float half_gamma_over3);
 #endif
 
-
-/* resize the descriptors to the new size using a weighted mean */
-void descflow_resize(image_t *dst_flow_x, image_t *dst_flow_y, image_t *dst_weight, const image_t *src_flow_x, const image_t *src_flow_y, const image_t *src_weight);
-
-/* resize the descriptors to the new size using a nearest neighbor method while keeping the descriptor with the higher weight at the end */
-void descflow_resize_nn(image_t *dst_flow_x, image_t *dst_flow_y, image_t *dst_weight, const image_t *src_flow_x, const image_t *src_flow_y, const image_t *src_weight);
-
 #ifdef __cplusplus
 }
 #endif

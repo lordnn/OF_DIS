@@ -17,8 +17,8 @@
 #define _mm_div_ps vdivq_f32
 #define _mm_set1_ps vdupq_n_f32
 #define _mm_sqrt_ps vsqrtq_f32
-#define _mm_min_ps vpminq_f32
-#define _mm_max_ps vpmaxq_f32
+#define _mm_min_ps vminq_f32
+#define _mm_max_ps vmaxq_f32
 #endif
 
 using std::cout;
