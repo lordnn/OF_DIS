@@ -88,8 +88,8 @@ void ReadFlowFile(cv::Mat& img, const char* filename)
   if (stream == 0)
     cout << "ReadFile: could not open %s" << endl;
 
-  int width, height;
-  float tag;
+  int width{}, height{};
+  float tag{};
   int nc = img.channels();
   std::vector<float> tmp(nc);
 

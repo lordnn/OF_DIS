@@ -10,8 +10,8 @@ else(MSVC)
     list(APPEND OptList -Wno-unknown-pragmas)
 endif(MSVC)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 ${OptList} -Wall -msse4")  #-Wall
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 ${OptList} -Wall -msse4")  #-Wall
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 ${OptList} -Wall")  #-Wall
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 ${OptList} -Wall")  #-Wall
 
 # OpenMP switcher
 if(USE_OPENMP)

@@ -1,10 +1,23 @@
 #include <stdlib.h>
 #include <math.h>
-#include <malloc.h>
 #include <string.h>
 #include "opticalflow_aux.h"
 
+#if defined(USE_SSE)
 #include <xmmintrin.h>
+#elif defined(USE_NEON)
+#include <arm_neon.h>
+#define __m128 float32x4_t
+#define _mm_load_ps vld1q_f32
+#define _mm_store_ps vst1q_f32
+#define _mm_storeu_ps vst1q_f32
+#define _mm_add_ps vaddq_f32
+#define _mm_sub_ps vsubq_f32
+#define _mm_mul_ps vmulq_f32
+#define _mm_div_ps vdivq_f32
+#define _mm_set1_ps vdupq_n_f32
+#define _mm_sqrt_ps vsqrtq_f32
+#endif
 
 #define datanorm 0.1f*0.1f//0.01f // square of the normalization factor
 #define epsilon_color (0.001f*0.001f)//0.000001f
@@ -144,12 +157,12 @@ void compute_smoothness(image_t *dst_horiz, image_t *dst_vert, const image_t *uu
     image_delete(ux); image_delete(uy); image_delete(vx); image_delete(vy); 
     // compute dst_horiz
     float *dsthp = dst_horiz->c1; sp = smoothness->c1;
-    float *sp_shift = (float*) _aligned_malloc(stride*sizeof(float), 16); // aligned shifted copy of the current line
+    image_t *sp_shift = image_new(width, 1); // aligned shifted copy of the current line
     for(j=0;j<height;j++){
         // create an aligned copy
         float *spf = sp;
-        memcpy(sp_shift, spf+1, sizeof(float)*(stride-1));
-        float *sps = sp_shift;
+        float *sps = sp_shift->c1;
+        memcpy(sps, spf+1, sizeof(float)*(stride-1));
         int i;
         for(i=0;i<stride/4;i++){
             _mm_store_ps(dsthp, _mm_add_ps(_mm_load_ps(sp), _mm_load_ps(sps)));
@@ -157,7 +170,7 @@ void compute_smoothness(image_t *dst_horiz, image_t *dst_vert, const image_t *uu
         }
         memset( &dst_horiz->c1[j*stride+width-1], 0, sizeof(float)*(stride-width+1));
     }
-    _aligned_free(sp_shift);
+    image_delete(sp_shift);
     // compute dst_vert
     sp = smoothness->c1;
     float *dstvp = dst_vert->c1, *sp_bottom = sp+stride;
@@ -209,7 +222,7 @@ void sub_laplacian(image_t *dst, const image_t *src, const image_t *weight_horiz
 /* compute the dataterm and the matching term
    a11 a12 a22 represents the 2x2 diagonal matrix, b1 and b2 the right hand side
    other (color) images are input */
-void compute_data_and_match(image_t *a11, image_t *a12, image_t *a22, image_t *b1, image_t *b2, image_t *mask, image_t *wx, image_t *wy, image_t *du, image_t *dv, image_t *uu, image_t *vv, color_image_t *Ix, color_image_t *Iy, color_image_t *Iz, color_image_t *Ixx, color_image_t *Ixy, color_image_t *Iyy, color_image_t *Ixz, color_image_t *Iyz, image_t *desc_weight, image_t *desc_flow_x, image_t *desc_flow_y, const float half_delta_over3, const float half_beta, const float half_gamma_over3){
+void compute_data_and_match(image_t *a11, image_t *a12, image_t *a22, image_t *b1, image_t *b2, image_t *mask, image_t *wx, image_t *wy, image_t *du, image_t *dv, image_t *uu, image_t *vv, color_image_t *Ix, color_image_t *Iy, color_image_t *Iz, color_image_t *Ixx, color_image_t *Ixy, color_image_t *Iyy, color_image_t *Ixz, color_image_t *Iyz, image_t *desc_weight, image_t *desc_flow_x, image_t *desc_flow_y, const float half_delta_over3, const float half_beta, const float half_gamma_over3) {
 #define STEP 4
     const __m128 dnorm = _mm_set1_ps(datanorm);
     const __m128 hdover3 = _mm_set1_ps(half_delta_over3);

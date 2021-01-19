@@ -103,7 +103,7 @@ namespace OFC
   op.tv_innerit = tv_innerit_in;
   op.tv_solverit = tv_solverit_in;
   op.tv_sor = tv_sor_in;
-  op.normoutlier_tmpbsq = _mm_set_ps1(op.normoutlier * op.normoutlier);
+  op.normoutlier_tmpbsq = _mm_set1_ps(op.normoutlier * op.normoutlier);
   op.normoutlier_tmp2bsq = _mm_mul_ps(op.normoutlier_tmpbsq, op.twos);
   op.normoutlier_tmp4bsq = _mm_mul_ps(op.normoutlier_tmpbsq, op.fours);
 

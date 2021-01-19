@@ -307,7 +307,6 @@ void VarRefClass::RefLevelDE(image_t *wx, const color_image_t *im1, const color_
             for( i=0 ; i<height*stride/4 ; i++)
             {
                 _mm_store_ps(uup, _mm_min_ps(_mm_add_ps(_mm_load_ps(wxp), _mm_load_ps(dup)), op->zero));
-                //(*uup) = __builtin_ia32_minps(   (*wxp) + (*dup)   ,  op->zero);
                 uup+=4; wxp+=4; dup+=4;
             }
           }
@@ -316,7 +315,6 @@ void VarRefClass::RefLevelDE(image_t *wx, const color_image_t *im1, const color_
             for( i=0 ; i<height*stride/4 ; i++)
             {
                 _mm_store_ps(uup, _mm_max_ps(_mm_add_ps(_mm_load_ps(wxp), _mm_load_ps(dup)), op->zero));
-                //(*uup) = __builtin_ia32_maxps(   (*wxp) + (*dup)   ,  op->zero);
                 uup+=4; wxp+=4; dup+=4;
             }
           }

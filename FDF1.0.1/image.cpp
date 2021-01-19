@@ -29,7 +29,11 @@ image_t *image_new(const int width, const int height){
     image->width = width;
     image->height = height;  
     image->stride = ( (width+3) / 4 ) * 4;
+#ifdef _WIN32
     image->c1 = (float*) _aligned_malloc(image->stride*height*sizeof(float), 16);
+#else
+    image->c1 = (float*) aligned_alloc(16, image->stride*height*sizeof(float));
+#endif
     if(image->c1 == NULL){
         free(image);
         fprintf(stderr, "Error: image_new() - not enough memory !\n");
@@ -75,7 +79,11 @@ void image_delete(image_t *image){
     if(image == NULL){
         //fprintf(stderr, "Warning: Delete image --> Ignore action (image not allocated)\n");
     }else{
+#ifdef _WIN32
     _aligned_free(image->c1);
+#else
+    free(image->c1);
+#endif
     free(image);
     }
 }
@@ -91,7 +99,11 @@ color_image_t *color_image_new(const int width, const int height){
     image->width = width;
     image->height = height;  
     image->stride = ( (width+3) / 4 ) * 4;
+#ifdef _WIN32
     image->c1 = (float*) _aligned_malloc(3*image->stride*height*sizeof(float), 16);
+#else
+    image->c1 = (float*) aligned_alloc(16, 3*image->stride*height*sizeof(float));
+#endif
     if(image->c1 == NULL){
         free(image);
         fprintf(stderr, "Error: color_image_new() - not enough memory !\n");
@@ -117,7 +129,11 @@ void color_image_erase(color_image_t *image){
 /* free memory of a color image */
 void color_image_delete(color_image_t *image){
     if(image){
+#ifdef _WIN32
         _aligned_free(image->c1); // c2 and c3 was allocated at the same moment
+#else
+        free(image->c1); // c2 and c3 was allocated at the same moment
+#endif
         free(image);
     }
 }
@@ -128,12 +144,20 @@ void resize_if_needed_newsize(image_t *im, const int w, const int h){
         im->width = w;
         im->height = h;
         im->stride = ((w+3)/4)*4;
+#ifdef _WIN32
         float *data = (float *) _aligned_malloc(im->stride*h*sizeof(float), 16);
+#else
+        float *data = (float *) aligned_alloc(16, im->stride*h*sizeof(float));
+#endif
         if(data == NULL){
             fprintf(stderr, "Error: resize_if_needed_newsize() - not enough memory !\n");
             exit(1);
         }
+#ifdef _WIN32
         _aligned_free(im->c1);
+#else
+        free(im->c1);
+#endif
         im->c1 = data;
     }
 }
@@ -432,7 +456,7 @@ static void convolve_vert_fast_3(image_t *dst, const image_t *src, const convolu
             std::rotate(std::begin(idx), std::next(std::begin(idx), 1), std::end(idx));
         }
         tmpSrc[idx[2]] = tmpSrc[idx[1]];
-        float32x4_t res = vmulq_n_f32(mc0, tmpSrc[idx[0]], coeff[0]);
+        float32x4_t res = vmulq_n_f32(tmpSrc[idx[0]], coeff[0]);
         res = vmlaq_n_f32(res, tmpSrc[idx[1]], coeff[1]);
         vst1q_f32(pDst, vmlaq_n_f32(res, tmpSrc[idx[2]], coeff[2]));
 #endif
@@ -455,7 +479,7 @@ static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolu
 #if defined(USE_SSE)
         __m128 tmpSrc[5];
         tmpSrc[0] = tmpSrc[1] = tmpSrc[2] = _mm_load_ps(pSrc);
-        pSrc += src->stride;
+        pSrc += iterline;
         tmpSrc[3] = _mm_load_ps(pSrc);
         for (int y{src->height - 2}; y--;) {
             pSrc += iterline;
@@ -474,12 +498,12 @@ static void convolve_vert_fast_5(image_t *dst, const image_t *src, const convolu
 #elif defined(USE_NEON)
         float32x4_t tmpSrc[5];
         tmpSrc[0] = tmpSrc[1] = tmpSrc[2] = vld1q_f32(pSrc);
-        pSrc += src->stride;
+        pSrc += iterline;
         tmpSrc[3] = vld1q_f32(pSrc);
         for (int y{src->height - 2}; y--;) {
             pSrc += iterline;
             tmpSrc[idx[4]] = vld1q_f32(pSrc);
-            float32x4_t res = vmulq__n_f32(tmpSrc[idx[0]], coeff[0]);
+            float32x4_t res = vmulq_n_f32(tmpSrc[idx[0]], coeff[0]);
             res = vmlaq_n_f32(res, tmpSrc[idx[1]], coeff[1]);
             res = vmlaq_n_f32(res, tmpSrc[idx[2]], coeff[2]);
             res = vmlaq_n_f32(res, tmpSrc[idx[3]], coeff[3]);

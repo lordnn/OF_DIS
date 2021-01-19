@@ -2,14 +2,26 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-#include <malloc.h>
 
 #include <omp.h>
 
 #include "image.h"
 #include "solver.h"
 
+#if defined(USE_SSE)
 #include <xmmintrin.h>
+#elif defined(USE_NEON)
+#include <arm_neon.h>
+#define __m128 float32x4_t
+#define _mm_load_ps vld1q_f32
+#define _mm_store_ps vst1q_f32
+#define _mm_storeu_ps vst1q_f32
+#define _mm_add_ps vaddq_f32
+#define _mm_sub_ps vsubq_f32
+#define _mm_mul_ps vmulq_f32
+#define _mm_div_ps vdivq_f32
+#define _mm_set1_ps vdupq_n_f32
+#endif
 
 //THIS IS A SLOW VERSION BUT READABLE
 //Perform n iterations of the sor_coupled algorithm
@@ -76,7 +88,7 @@ void sor_coupled_slow_but_readable(image_t *du, image_t *dv, image_t *a11, image
 void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *a22, const image_t *b1, const image_t *b2, const image_t *dpsis_horiz, const image_t *dpsis_vert, const int iterations, const float omega){
     //sor_coupled_slow(du,dv,a11,a12,a22,b1,b2,dpsis_horiz,dpsis_vert,iterations,omega); return; printf("test\n");
 
-    if(du->width<2 || du->height<2 || iterations < 1){
+    if (du->width<2 || du->height<2 || iterations < 1) {
         sor_coupled_slow_but_readable(du,dv,a11,a12,a22,b1,b2,dpsis_horiz,dpsis_vert,iterations,omega);
         return;
     }
@@ -84,19 +96,19 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
     const int stride = du->stride, width = du->width;
     const int iterheight = du->height-1, iterline = (stride)/4, width_minus_1_sizeoffloat = sizeof(float)*(width-1);
     int j,iter,i,k;
-    float *floatarray = (float*)_aligned_malloc(stride*sizeof(float)*3, 16);
-    if(floatarray==NULL){
+    image_t *floatarray = image_new(width, 3);
+    if (floatarray==NULL) {
         fprintf(stderr, "error in sor_coupled(): not enough memory\n");
         exit(1);
     }
-    float *f1 = floatarray;
-    float *f2 = f1+stride;
-    float *f3 = f2+stride;
+    float *f1 = floatarray->c1;
+    float *f2 = f1 + floatarray->stride;
+    float *f3 = f2 + floatarray->stride;
     f1[0] = 0.0f;
     memset(&f1[width], 0, sizeof(float)*(stride-width));
     memset(&f2[width-1], 0, sizeof(float)*(stride-width+1));
     memset(&f3[width-1], 0, sizeof(float)*(stride-width+1));
-    const __m128 mzero = _mm_set_ps1(0.f);
+    const __m128 mzero = _mm_set1_ps(0.f);
 
     { // first iteration
         float *a11p = a11->c1, *a12p = a12->c1, *a22p = a22->c1, *b1p = b1->c1, *b2p = b2->c1, *hp = dpsis_horiz->c1, *vp = dpsis_vert->c1;
@@ -161,7 +173,6 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
                 dur+=4; dvr+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-          
         }
 
         float *vpt = dpsis_vert->c1;
@@ -223,7 +234,6 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
                 dur+=4; dvr+=4; dut+=4; dvt+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-
         }
 
         { // first iteration - last line
@@ -282,7 +292,6 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
                 dur+=4; dvr+=4; dut+=4; dvt+=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-
         }
     }
 
@@ -333,7 +342,6 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
                 dur+=4; dvr+=4; dub+=4; dvb +=4; b1p+=4; b2p+=4;
                 du_ptr += 4; dv_ptr += 4;
             }
-
         }
 
         float *vpt = dpsis_vert->c1;
@@ -427,9 +435,8 @@ void sor_coupled(image_t *du, image_t *dv, image_t *a11, image_t *a12, image_t *
             }
         }
     }
-    _aligned_free(floatarray);
+    image_delete(floatarray);
 }
-
 
 //THIS IS A SLOW VERSION BUT READABLE
 //Perform n iterations of the sor_coupled algorithm
@@ -442,8 +449,8 @@ void sor_coupled_slow_but_readable_DE(image_t *du, const image_t *a11, const ima
     {
     #pragma omp parallel for
         for(j=0 ; j<du->height ; j++)
-    {
-      float sigma_u,sum_dpsis,A11,B1;
+        {
+            float sigma_u,sum_dpsis,A11,B1;
             for(i=0 ; i<du->width ; i++){
                 sigma_u = 0.0f;
                 sum_dpsis = 0.0f;

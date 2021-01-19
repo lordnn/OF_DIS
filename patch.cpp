@@ -229,10 +229,14 @@ void PatClass::LossComputeErrorImage(Eigen::Matrix<float, Eigen::Dynamic, 1>* pa
   {
     for (int i = op->novals / 4; i--; pd += 4, pa += 4, te += 4, pw += 4)
     {
-      __m128 mpa = _mm_load_ps(pd);
+      __m128 mpa = _mm_load_ps(pa);
       __m128 mte = _mm_load_ps(te);
       __m128 mpd = _mm_sub_ps(mpa, mte); // difference image
+#if defined(USE_SSE)
       __m128 mpw = _mm_andnot_ps(op->negzero, mpd);
+#elif defined(USE_NEON)
+      float32x4_t mpw = vabsq_f32(mpd);
+#endif
       _mm_store_ps(pd, mpd);
       _mm_store_ps(pw, mpw);
     }
@@ -244,8 +248,13 @@ void PatClass::LossComputeErrorImage(Eigen::Matrix<float, Eigen::Dynamic, 1>* pa
       __m128 mpa = _mm_load_ps(pa);
       __m128 mte = _mm_load_ps(te);
       __m128 mpd = _mm_sub_ps(mpa, mte);   // difference image
-      mpd = _mm_or_ps(_mm_and_ps(op->negzero, mpd), _mm_sqrt_ps(_mm_andnot_ps(op->negzero, mpd)));  // sign(pdiff) * sqrt(abs(pdiff))
-      __m128 mpw = _mm_andnot_ps(op->negzero, mpd);
+#if defined(USE_SSE)
+      __m128 mpw = _mm_sqrt_ps(_mm_andnot_ps(op->negzero, mpd));
+      mpd = _mm_or_ps(_mm_and_ps(op->negzero, mpd), mpw);  // sign(pdiff) * sqrt(abs(pdiff))
+#elif defined(USE_NEON)
+      float32x4_t mpw = vsqrtq_f32(vabsq_f32(mpd));;
+      mpd = vmulq_f32(vbslq_f32(vcgeq_f32(mpd, op->zero), op->ones, op->negones), mpw);
+#endif
       _mm_store_ps(pd, mpd);
       _mm_store_ps(pw, mpw);
     }
@@ -254,11 +263,15 @@ void PatClass::LossComputeErrorImage(Eigen::Matrix<float, Eigen::Dynamic, 1>* pa
   {
     for (int i=op->novals/4; i--; pd += 4, pa += 4, te += 4, pw += 4)
     {
-      __m128 mpa = _mm_load_ps(pd);
+      __m128 mpa = _mm_load_ps(pa);
       __m128 mte = _mm_load_ps(te);
       __m128 mpd = _mm_sub_ps(mpa, mte);   // difference image
-      mpd = _mm_or_ps(_mm_and_ps(op->negzero, mpd), _mm_sqrt_ps(_mm_mul_ps(_mm_sub_ps(_mm_sqrt_ps(_mm_add_ps(op->ones, _mm_div_ps(_mm_mul_ps(mpd, mpd), op->normoutlier_tmpbsq))), op->ones), op->normoutlier_tmp2bsq)));  // sign(pdiff) * sqrt( 2*b^2*( sqrt(1+abs(pdiff)^2/b^2)+1)  )) // <- looks like this without SSE instruction
-      __m128 mpw = _mm_andnot_ps(op->negzero, mpd);
+      __m128 mpw = _mm_sqrt_ps(_mm_mul_ps(_mm_sub_ps(_mm_sqrt_ps(_mm_add_ps(op->ones, _mm_div_ps(_mm_mul_ps(mpd, mpd), op->normoutlier_tmpbsq))), op->ones), op->normoutlier_tmp2bsq));
+#if defined(USE_SSE)
+      mpd = _mm_or_ps(_mm_and_ps(op->negzero, mpd), mpw);  // sign(pdiff) * sqrt( 2*b^2*( sqrt(1+abs(pdiff)^2/b^2)-1)  )) // <- looks like this without SSE instruction
+#elif defined(USE_NEON)
+      mpd = vmulq_f32(vbslq_f32(vcgeq_f32(mpd, op->zero), op->ones, op->negones), mpw);
+#endif
       _mm_store_ps(pd, mpd);
       _mm_store_ps(pw, mpw);
     }

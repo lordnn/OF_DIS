@@ -4,6 +4,23 @@
 #ifndef OFC_HEADER
 #define OFC_HEADER
 
+#if defined(USE_SSE)
+#include <xmmintrin.h>
+#elif defined(USE_NEON)
+#include <arm_neon.h>
+#define __m128 float32x4_t
+#define _mm_load_ps vld1q_f32
+#define _mm_store_ps vst1q_f32
+#define _mm_add_ps vaddq_f32
+#define _mm_sub_ps vsubq_f32
+#define _mm_mul_ps vmulq_f32
+#define _mm_div_ps vdivq_f32
+#define _mm_set1_ps vdupq_n_f32
+#define _mm_sqrt_ps vsqrtq_f32
+#define _mm_min_ps vpminq_f32
+#define _mm_max_ps vpmaxq_f32
+#endif
+
 using std::cout;
 using std::endl;
 
@@ -60,12 +77,13 @@ typedef struct
   float normoutlier = 5.0f;     // norm error threshold for huber norm
   
   // Helper variables
-  __m128 zero     = _mm_set_ps1(0.0f);
-  __m128 negzero  = _mm_set_ps1(-0.0f);
-  __m128 half     = _mm_set_ps1(0.5f);
-  __m128 ones     = _mm_set_ps1(1.0f);
-  __m128 twos     = _mm_set_ps1(2.0f);
-  __m128 fours    = _mm_set_ps1(4.0f);
+  __m128 zero     = _mm_set1_ps(0.0f);
+  __m128 negzero  = _mm_set1_ps(-0.0f);
+  __m128 half     = _mm_set1_ps(0.5f);
+  __m128 ones     = _mm_set1_ps(1.0f);
+  __m128 negones  = _mm_set1_ps(-1.0f);
+  __m128 twos     = _mm_set1_ps(2.0f);
+  __m128 fours    = _mm_set1_ps(4.0f);
   __m128 normoutlier_tmpbsq;
   __m128 normoutlier_tmp2bsq;
   __m128 normoutlier_tmp4bsq;
