@@ -1,11 +1,10 @@
 
-
-#include <iostream>
-#include <string>
-#include <vector>
-
 #include <chrono>
+#include <iostream>
+#include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <Eigen/Core>
 #include <Eigen/LU>
@@ -34,10 +33,10 @@ namespace OFC
                                                                                        // im_ao[  (sc_l_in-1) : 0 ] can be left as nullptr pointers
                                                                                        // IMPORTANT assumption: mod(width,2^sc_f_in)==0  AND mod(height,2^sc_f_in)==0, 
                   const float ** im_bo_in, const float ** im_bo_dx_in, const float ** im_bo_dy_in,
-                  const int imgpadding_in,    
+                  const int imgpadding_in,
                   float * outflow,
                   const float * initflow,
-                  const int width_in, const int height_in, 
+                  const int width_in, const int height_in,
                   const int sc_f_in, const int sc_l_in,
                   const int max_iter_in, const int min_iter_in,
                   const float  dp_thresh_in,
@@ -62,7 +61,7 @@ namespace OFC
 {
 
 
-  #ifdef WITH_OPENMP
+  #ifdef _OPENMP
     if (verbosity_in>1)
       cout <<  "OPENMP is ON - used in pconst, pinit, potim";
     #ifdef USE_PARALLEL_ON_FLOWAGGR
@@ -70,7 +69,7 @@ namespace OFC
       cout << ", cflow ";
     #endif
     if (verbosity_in>1) cout << endl;
-  #endif //DWITH_OPENMP  
+  #endif //D_OPENMP
 
   // Parse optimization parameters
   #if (SELECTMODE==1)
@@ -110,13 +109,13 @@ namespace OFC
 
   // Variables for algorithm timings
   std::chrono::time_point<std::chrono::steady_clock> tv_start_all, tv_end_all, tv_start_all_global, tv_end_all_global;
-  if (op.verbosity>0)
+  if (op.verbosity > 0) {
     tv_start_all_global = std::chrono::steady_clock::now();
+  }
 
   // ... per each scale
   std::vector<double> tt_patconstr(op.noscales), tt_patinit(op.noscales), tt_patoptim(op.noscales), tt_compflow(op.noscales), tt_tvopt(op.noscales), tt_all(op.noscales);
-  for (int sl=op.sc_f; sl>=op.sc_l; --sl) 
-  {
+  for (int sl = op.sc_f; sl >= op.sc_l; --sl) {
     tt_patconstr[sl-op.sc_l]=0;
     tt_patinit[sl-op.sc_l]=0;
     tt_patoptim[sl-op.sc_l]=0;
@@ -125,18 +124,19 @@ namespace OFC
     tt_all[sl-op.sc_l]=0;
   }
 
-  if (op.verbosity>1) tv_start_all = std::chrono::steady_clock::now();
+  if (op.verbosity > 1) {
+      tv_start_all = std::chrono::steady_clock::now();
+  }
 
 
   // Create grids on each scale
-  vector<OFC::PatGridClass*> grid_fw(op.noscales);
-  vector<OFC::PatGridClass*> grid_bw(op.noscales); // grid for backward OF computation, only needed if 'usefbcon' is set to 1.
-  vector<float*> flow_fw(op.noscales);
-  vector<float*> flow_bw(op.noscales);
+  vector<std::unique_ptr<OFC::PatGridClass>> grid_fw(op.noscales);
+  vector<std::unique_ptr<OFC::PatGridClass>> grid_bw(op.noscales); // grid for backward OF computation, only needed if 'usefbcon' is set to 1.
+  vector<std::unique_ptr<float[]>> flow_fw(op.noscales);
+  vector<std::unique_ptr<float[]>> flow_bw(op.noscales);
   cpl.resize(op.noscales);
   cpr.resize(op.noscales);
-  for (int sl=op.sc_f; sl>=op.sc_l; --sl) 
-  {
+  for (int sl=op.sc_f; sl>=op.sc_l; --sl) {
     int i = sl-op.sc_l;
 
     float sc_fct = pow(2,-sl); // scaling factor at current scale
@@ -156,24 +156,22 @@ namespace OFC
     cpr[i] = cpl[i];
     cpr[i].camlr = 1;
 
-    flow_fw[i]   = new float[op.nop * cpl[i].width * cpl[i].height];
-    grid_fw[i]   = new OFC::PatGridClass(&(cpl[i]), &(cpr[i]), &op);
+    flow_fw[i].reset(new float[op.nop * cpl[i].width * cpl[i].height]);
+    grid_fw[i].reset(new OFC::PatGridClass(&(cpl[i]), &(cpr[i]), &op));
 
-    if (op.usefbcon) // for merging forward and backward flow 
-    {
-      flow_bw[i] = new float[op.nop * cpr[i].width * cpr[i].height];
-      grid_bw[i] = new OFC::PatGridClass(&(cpr[i]), &(cpl[i]), &op);
+    if (op.usefbcon) { // for merging forward and backward flow 
+      flow_bw[i].reset(new float[op.nop * cpr[i].width * cpr[i].height]);
+      grid_bw[i].reset(new OFC::PatGridClass(&(cpr[i]), &(cpl[i]), &op));
 
       // Make grids known to each other, necessary for AggregateFlowDense();
-      grid_fw[i]->SetComplGrid( grid_bw[i] );
-      grid_bw[i]->SetComplGrid( grid_fw[i] ); 
+      grid_fw[i]->SetComplGrid(grid_bw[i].get());
+      grid_bw[i]->SetComplGrid(grid_fw[i].get());
     }
   }
 
 
   // Timing, Grid memory allocation
-  if (op.verbosity>1)
-  {
+  if (op.verbosity > 1) {
     tv_end_all = std::chrono::steady_clock::now();
     double tt_gridconst = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
     printf("TIME (Grid Memo. Alloc. ) (ms): %3g\n", tt_gridconst);
@@ -185,20 +183,20 @@ namespace OFC
   {
     int ii = sl-op.sc_l;
 
-    if (op.verbosity>1) tv_start_all = std::chrono::steady_clock::now();
+    if (op.verbosity > 1) {
+        tv_start_all = std::chrono::steady_clock::now();
+    }
 
     // Initialize grid (Step 1 in Algorithm 1 of paper)
-    grid_fw[ii]->  InitializeGrid(im_ao[sl], im_ao_dx[sl], im_ao_dy[sl]);
-    grid_fw[ii]->  SetTargetImage(im_bo[sl], im_bo_dx[sl], im_bo_dy[sl]);
-    if (op.usefbcon)
-    {
+    grid_fw[ii]->InitializeGrid(im_ao[sl], im_ao_dx[sl], im_ao_dy[sl]);
+    grid_fw[ii]->SetTargetImage(im_bo[sl], im_bo_dx[sl], im_bo_dy[sl]);
+    if (op.usefbcon) {
       grid_bw[ii]->InitializeGrid(im_bo[sl], im_bo_dx[sl], im_bo_dy[sl]);
       grid_bw[ii]->SetTargetImage(im_ao[sl], im_ao_dx[sl], im_ao_dy[sl]);
     }
 
     // Timing, Grid construction
-    if (op.verbosity>1)
-    {
+    if (op.verbosity > 1) {
       tv_end_all = std::chrono::steady_clock::now();
       tt_patconstr[ii] = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
       tt_all[ii] += tt_patconstr[ii];
@@ -206,33 +204,32 @@ namespace OFC
     }
     
     // Initialization from previous scale, or to zero at first iteration. (Step 2 in Algorithm 1 of paper)
-    if (sl < op.sc_f)
-    {
-      grid_fw[ii]->InitializeFromCoarserOF(flow_fw[ii+1]); // initialize from flow at previous coarser scale
-      
-      // Initialize backward flow
-      if (op.usefbcon)
-        grid_bw[ii]->InitializeFromCoarserOF(flow_bw[ii+1]);
+    if (sl < op.sc_f) {
+        grid_fw[ii]->InitializeFromCoarserOF(flow_fw[ii + 1].get()); // initialize from flow at previous coarser scale
+
+        // Initialize backward flow
+        if (op.usefbcon) {
+            grid_bw[ii]->InitializeFromCoarserOF(flow_bw[ii + 1].get());
+        }
     }
-    else if (sl == op.sc_f && initflow != nullptr) // initialization given input flow
-    {
-      grid_fw[ii]->InitializeFromCoarserOF(initflow); // initialize from flow at coarser scale
+    else if (sl == op.sc_f && initflow != nullptr) { // initialization given input flow
+        grid_fw[ii]->InitializeFromCoarserOF(initflow); // initialize from flow at coarser scale
     }
 
     // Timing, Grid initialization
-    if (op.verbosity>1)
-    {
-      tv_end_all = std::chrono::steady_clock::now();
-      tt_patinit[ii] = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
-      tt_all[ii] += tt_patinit[ii];
-      tv_start_all = std::chrono::steady_clock::now();
+    if (op.verbosity > 1) {
+        tv_end_all = std::chrono::steady_clock::now();
+        tt_patinit[ii] = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
+        tt_all[ii] += tt_patinit[ii];
+        tv_start_all = std::chrono::steady_clock::now();
     }
     
 
     // Dense Inverse Search. (Step 3 in Algorithm 1 of paper)
     grid_fw[ii]->Optimize();
-    if (op.usefbcon)
-      grid_bw[ii]->Optimize();
+    if (op.usefbcon) {
+        grid_bw[ii]->Optimize();
+    }
 
 //     if (op.verbosity==4) // needed for verbosity >= 3, DISVISUAL
 //     {
@@ -249,8 +246,7 @@ namespace OFC
 
 
     // Timing, DIS
-    if (op.verbosity>1)
-    {
+    if (op.verbosity > 1) {
       tv_end_all = std::chrono::steady_clock::now();
       tt_patoptim[ii] = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
       tt_all[ii] += tt_patoptim[ii];
@@ -260,19 +256,19 @@ namespace OFC
 
 
     // Densification. (Step 4 in Algorithm 1 of paper)
-    float *tmp_ptr = flow_fw[ii];
-    if (sl == op.sc_l)
+    float *tmp_ptr = flow_fw[ii].get();
+    if (sl == op.sc_l) {
       tmp_ptr = outflow;
+    }
     
     grid_fw[ii]->AggregateFlowDense(tmp_ptr);
     
     if (op.usefbcon && sl > op.sc_l )  // skip at last scale, backward flow no longer needed
-      grid_bw[ii]->AggregateFlowDense(flow_bw[ii]);
+      grid_bw[ii]->AggregateFlowDense(flow_bw[ii].get());
       
 
     // Timing, Densification
-    if (op.verbosity>1)
-    {
+    if (op.verbosity>1) {
       tv_end_all = std::chrono::steady_clock::now();
       tt_compflow[ii] = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
       tt_all[ii] += tt_compflow[ii];
@@ -282,8 +278,7 @@ namespace OFC
 
 
     // Variational refinement, (Step 5 in Algorithm 1 of paper)
-    if (op.usetvref)
-    {
+    if (op.usetvref) {
       OFC::VarRefClass varref_fw(im_ao[sl], im_ao_dx[sl], im_ao_dy[sl],
                                 im_bo[sl], im_bo_dx[sl], im_bo_dy[sl]
                                 ,&(cpl[ii]), &(cpr[ii]), &op, tmp_ptr);
@@ -291,12 +286,11 @@ namespace OFC
       if (op.usefbcon  && sl > op.sc_l )    // skip at last scale, backward flow no longer needed
           OFC::VarRefClass varref_bw(im_bo[sl], im_bo_dx[sl], im_bo_dy[sl],
                                     im_ao[sl], im_ao_dx[sl], im_ao_dy[sl]
-                                    ,&(cpr[ii]), &(cpl[ii]), &op, flow_bw[ii]);
+                                    ,&(cpr[ii]), &(cpl[ii]), &op, flow_bw[ii].get());
     }
 
     // Timing, Variational Refinement
-    if (op.verbosity>1)
-    {
+    if (op.verbosity > 1) {
       tv_end_all = std::chrono::steady_clock::now();
       tt_tvopt[ii] = std::chrono::duration<double, std::milli>(tv_end_all - tv_start_all).count();
       tt_all[ii] += tt_tvopt[ii];
@@ -333,30 +327,13 @@ namespace OFC
 //       
 //       cv::waitKey(0);
 //     }
-
   }
-
-  // Clean up
-  for (int sl=op.sc_f; sl>=op.sc_l; --sl)
-  {
-
-    delete[] flow_fw[sl-op.sc_l];
-    delete grid_fw[sl-op.sc_l];
-
-    if (op.usefbcon)
-    {
-      delete[] flow_bw[sl-op.sc_l];
-      delete grid_bw[sl-op.sc_l];
-    }
-  }
-
 
   // Timing, total algorithm run-time
-  if (op.verbosity>0)
-  {
+  if (op.verbosity > 0) {
     tv_end_all_global = std::chrono::steady_clock::now();
     auto tt = std::chrono::duration<double, std::milli>(tv_end_all_global - tv_start_all_global).count();
-    printf("TIME (O.Flow Run-Time   ) (ms): %3g\n", tt);            
+    printf("TIME (O.Flow Run-Time   ) (ms): %3g\n", tt);
   }
 }
 
@@ -366,7 +343,7 @@ namespace OFC
 //   cv::line(img, cv::Point( (pt[0]+.5)*sc, (pt[1]+.5)*sc ), cv::Point( (pt[0]+.5)*sc, (pt[1]+.5)*sc ), cv::Scalar(0,0,255),  4);
 //   
 //   float lb = -op.p_samp_s/2;
-//   float ub = op.p_samp_s/2-1;     
+//   float ub = op.p_samp_s/2-1;
 //   
 //   cv::line(img, cv::Point( ((pt[0]+lb)+.5)*sc, ((pt[1]+lb)+.5)*sc ), cv::Point( ((pt[0]+ub)+.5)*sc, ((pt[1]+lb)+.5)*sc ), cv::Scalar(0,0,255),  1);
 //   cv::line(img, cv::Point( ((pt[0]+ub)+.5)*sc, ((pt[1]+lb)+.5)*sc ), cv::Point( ((pt[0]+ub)+.5)*sc, ((pt[1]+ub)+.5)*sc ), cv::Scalar(0,0,255),  1);

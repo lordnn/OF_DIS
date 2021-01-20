@@ -199,7 +199,7 @@ void VarRefClass::RefLevelOF(image_t *wx, image_t *wy, const color_image_t *im1,
         sub_laplacian(b2, wy, smooth_horiz, smooth_vert);
 
         // solve system
-        #ifdef WITH_OPENMP
+        #ifdef _OPENMP
         sor_coupled_slow_but_readable(du, dv, a11, a12, a22, b1, b2, smooth_horiz, smooth_vert, tvparams.n_solver_iteration, tvparams.sor_omega); // slower but parallelized
         #else
         sor_coupled(du, dv, a11, a12, a22, b1, b2, smooth_horiz, smooth_vert, tvparams.n_solver_iteration, tvparams.sor_omega);
