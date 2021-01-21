@@ -5,8 +5,8 @@
 
 #if defined(USE_SSE)
 #include <xmmintrin.h>
-#define _vmla_ps(a, b, c) _mm_add_ps(a, _mm_mul_ps(b, c))
-#define _vmls_ps(a, b, c) _mm_sub_ps(a, _mm_mul_ps(b, c))
+#define _vmla_ps(a, b, c) _mm_add_ps((a), _mm_mul_ps((b), (c)))
+#define _vmls_ps(a, b, c) _mm_sub_ps((a), _mm_mul_ps((b), (c)))
 #elif defined(USE_NEON)
 #include <arm_neon.h>
 #define __m128 float32x4_t
@@ -18,8 +18,8 @@
 #define _mm_div_ps vdivq_f32
 #define _mm_set1_ps vdupq_n_f32
 #define _mm_sqrt_ps vsqrtq_f32
-#define _vmla_ps(a, b, c) vmlaq_f32(a, b, c)
-#define _vmls_ps(a, b, c) vmlsq_f32(a, b, c)
+#define _vmla_ps(a, b, c) vmlaq_f32((a), (b), (c))
+#define _vmls_ps(a, b, c) vmlsq_f32((a), (b), (c))
 #endif
 
 #define datanorm 0.1f*0.1f//0.01f // square of the normalization factor
